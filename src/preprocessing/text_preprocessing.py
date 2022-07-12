@@ -155,7 +155,7 @@ def lemmatize(tokens: list[str]) -> list[str]:
     """
     Lemmatize tokens to reduce dictionary size.
     """
-    lemmatizer = WordNetLemmatizer()
+    lemmatizer = WordNetLemmatizer() #with no additional info, it assumes all tokens to be nouns TODO: evaluate simpler stemming approaches
     tokens = [lemmatizer.lemmatize(token) for token in tokens]
     return tokens 
 
