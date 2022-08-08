@@ -4,3 +4,4 @@ spampy/
 **/.DS_Store
 *.pyc
 .vscode/
+.ti

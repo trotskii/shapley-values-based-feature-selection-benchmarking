@@ -1,6 +1,12 @@
 import re 
+import pandas as pd
+import numpy as np
+import sklearn.feature_extraction.text as ft 
+
 from nltk.tokenize import word_tokenize
 from nltk.stem.wordnet import WordNetLemmatizer
+from src.preprocessing.ctfidf import CTFIDFVectorizer
+
 
 def expand_contractions(string: str) -> str:
     """
@@ -173,5 +179,50 @@ def normalize_text(string: str) -> str:
     return normalized
 
 
+def get_n_most_important_words_cftfidf(df: pd.DataFrame, n_words: int) -> dict[str, list[str]]:
+    """
+    Get n_words most important words per each class according to cftfidf.
+    Arguments:
+        df - preprocessed dataframe that has "Text" of intereset and "Label" for each class
+        n_words - number of words to pick
+    Returns:
+        words_per_class - dictionary with list of n_words for each class
+    """
+    text_per_class = df.groupby(['Label'], as_index=False).agg({'Text': ' '.join})
+    count_vectorizer = ft.CountVectorizer().fit(text_per_class['Text'])
+    count = count_vectorizer.transform(text_per_class['Text'])
+    words = count_vectorizer.get_feature_names_out()
+    print(f'{len(words)} unique words.')
 
-    
+    ctfidf = CTFIDFVectorizer().fit_transform(count, n_samples=df.shape[0]).toarray()
+
+    labels = text_per_class['Label'].unique()
+
+    words_per_class = {label: [words[index] for index in ctfidf[label].argsort()[-n_words:]] for label in labels}
+
+    return words_per_class
+
+def filter_unimportant_words(df: pd.DataFrame, important_words: dict[str, list[str]]) -> pd.DataFrame:
+    """
+    Filter out words that are not included in important_words dict.
+    Arguments:
+        df - preprocessed dataframe
+        important_words - dictionary with important words per class
+    Returns:
+        filtered_df - dataframe with filtered out unimportant words
+    """
+
+    def _filter_words(text_string: str) -> str:
+        word_list = text_string.split(' ')
+        word_list = [word for word in word_list if word in all_important_words]
+        return ' '.join(word_list)
+
+    all_important_words = []
+    for _, words in important_words.items():
+        all_important_words.extend(words)
+
+    df['Text'] = df['Text'].apply(_filter_words)
+
+    return df
+
+
