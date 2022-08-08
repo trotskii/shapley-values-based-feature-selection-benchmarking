@@ -2,3 +2,6 @@ data/
 spampy/
 .DS_Store/
 **/.DS_Store
+*.pyc
+.vscode/
+.ti
