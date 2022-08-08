@@ -20,9 +20,11 @@ class TermStrengthFeatureExtractor:
             y - array-like with class labels for X
         """
         if isinstance(y, np.ndarray):
-            classes = np.unique() 
+            classes = np.unique(y) 
         elif isinstance(y, (pd.Series, pd.DataFrame)):
             classes = y.unique()
+        else:
+            raise ValueError(f'Unexpected type for y: {type(y)}. y must be array like')
         
         self.classes = classes
 
@@ -32,8 +34,9 @@ class TermStrengthFeatureExtractor:
             n_docs, _ = X_cls.shape
 
             n_t = X_cls.sum(axis=0) # number of documents with term in question (each column for each term)
-            s_t = comb(n_t, 2) / (comb(n_docs, 2) - comb(n_docs-n_t, 2)) # N of pairs where t in both docs divided by number of pairs where t in at least one doc
-            s_t = np.nan_to_num(s_t) # set s_t to 0 if the word was not present for that class
+            nominator = comb(n_t, 2) # N of pairs where t in both docs
+            denominator = comb(n_docs, 2) - comb(n_docs-n_t, 2) # number of pairs where t in at least one doc
+            s_t = np.divide(nominator, denominator, out=np.zeros_like(nominator), where=denominator!=0)
             self.term_strength[cls] = s_t
     
     def transform(self, X):
@@ -47,7 +50,7 @@ class TermStrengthFeatureExtractor:
         X = X.asfptype()
         s_t = {}
         for cls in self.classes:
-            s_t[cls] = X.minimum(np.tile(self.term_strength_full[cls], (X.shape[0], 1))) # sets term (0 or 1) to term strength, term strength is <= 1, so element wise min works
+            s_t[cls] = csr_matrix(X.minimum(np.tile(self.term_strength[cls], (X.shape[0], 1)))) # sets term (0 or 1) to term strength, term strength is <= 1, so element wise min works
         
         return s_t 
 
@@ -61,9 +64,9 @@ class TermStrengthFeatureExtractor:
         """
         keep_idx = {}
         for cls in self.classes:
-            E_t = np.mean(self.term_strength_full[cls])
-            std = np.std(self.term_strength_full[cls])
-            keep_idx[cls] = np.where(self.term_strength_full[cls] > n_std*std*E_t)
+            E_t = np.mean(self.term_strength[cls])
+            std = np.std(self.term_strength[cls])
+            keep_idx[cls] = np.where(self.term_strength[cls] > n_std*std*E_t)[1] 
 
         return keep_idx
 
