@@ -70,5 +70,12 @@ class TermStrengthFeatureExtractor:
 
         return keep_idx
 
+    def get_n_strongest_terms_words(self, n_words, vocabulary):
+        """
+        Get n_words most important words from vocabulary per class according to term strength values.
+        """
+        words_per_class = {label: [vocabulary[index] for index in self.term_strength[label][0].argsort()[-n_words:]] for label in self.classes}
+
+        return words_per_class
 
             
