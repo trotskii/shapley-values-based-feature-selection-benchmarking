@@ -3,6 +3,7 @@ import numpy as np
 from typing import Union
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.special import comb
+from sklearn.feature_selection import mutual_info_classif
 
 class TermStrengthFeatureExtractor:
     """
@@ -79,3 +80,41 @@ class TermStrengthFeatureExtractor:
         return words_per_class
 
             
+class MutualInformationFeatureExtractor:
+    """
+    Mutual Information based feature extractor. Implemented based on arXiv:1509.07577
+    """
+    def __init__(self):
+        self.mutual_information = {}
+        self.classes = []
+
+    def fit(self, X, y):
+        """
+        Fit feature extractor
+        Arguments:
+            X -  counts of word (output from CountVectorizer)
+            y - array-like with class labels for X
+        """
+        if isinstance(y, np.ndarray):
+            classes = np.unique(y) 
+        elif isinstance(y, (pd.Series, pd.DataFrame)):
+            classes = y.unique()
+        else:
+            raise ValueError(f'Unexpected type for y: {type(y)}. y must be array like')
+        
+        self.classes = classes
+
+        mi = mutual_info_classif(X, y, discrete_features=True)
+
+        self.mutual_information = mi 
+    
+    def transform(self, X):
+        return csr_matrix(X.minimum(np.tile(self.mutual_information, (X.shape[0], 1))))
+
+    def get_n_words_mi(self, n_words, vocabulary):
+        """
+        Get n_words most important words from vocabulary per class according to mutual information values. Will return duplicates per class label for consistency with other methods.
+        """
+        words_per_class = {label: [vocabulary[index] for index in self.mutual_information.argsort()[-n_words:]] for label in self.classes}
+
+        return words_per_class
