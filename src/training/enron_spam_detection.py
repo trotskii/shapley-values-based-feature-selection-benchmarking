@@ -268,7 +268,73 @@ def mutual_information_based_method(df: pd.DataFrame, n_words: int, model: sklea
 
     return results
 
+def chi2_information_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEstimator, split: float) -> dict:
+    """
+    Train model with mutual information based features selection.
+    """
+    timing = {}
 
+    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+    df_train = pd.DataFrame(X_train)
+    df_train['Label'] = y_train 
+
+    df_test = pd.DataFrame(X_test)
+    df_test['Label'] = y_test
+
+    count_vectorizer = CountVectorizer(binary=False)
+    count_vectorizer.fit(X_train)
+
+    X_train_vectorized = count_vectorizer.transform(X_train)
+
+    chi2_exctractor = filter.Chi2FeatureExtractor()
+    start = timer()
+    chi2_exctractor.fit(X_train_vectorized, y_train)
+    end = timer()
+    timing['chi2_fit'] = str(timedelta(seconds=end-start))
+    logging.info('Fit chi2 extractor.')
+
+    words_per_class = chi2_exctractor.get_n_words_chi2(n_words, 
+                                    vocabulary=count_vectorizer.get_feature_names_out())
+
+
+
+    start = timer()
+    filtered_train_df = tp.filter_unimportant_words(df_train, words_per_class)
+    end = timer()
+    timing['filtered_unimportant_words_train_set_time'] = str(timedelta(seconds=end-start))
+    logging.info('Filtered unimportant words from dataset.')
+
+    start = timer()
+    filtered_test_df = tp.filter_unimportant_words(df_test, words_per_class)
+    end = timer()
+    timing['filtered_unimportant_words_train_set_time'] = str(timedelta(seconds=end-start))
+    logging.info('Filtered unimportant words from dataset.')
+
+
+    tfidf_vectorizer = TfidfVectorizer(analyzer='word')
+
+    start = timer()
+    X_train_vectorized = tfidf_vectorizer.fit_transform(filtered_train_df['Text'])
+    X_test_vectorized = tfidf_vectorizer.transform(filtered_test_df['Text'])
+    end = timer()
+    timing['vectorized_time'] = str(timedelta(seconds=end-start))
+    logging.info('Vectorized dataset.')
+
+    start = timer()
+    model.fit(X_train_vectorized, filtered_train_df['Label'])
+    end = timer()    
+    timing['model_training_time'] = str(timedelta(seconds=end-start))
+    logging.info('Model training finished.')
+
+    results = record_results(model=model, 
+                                X_t=X_train_vectorized,
+                                y_t=filtered_train_df['Label'],
+                                X_val=X_test_vectorized,
+                                y_val=filtered_test_df['Label'],
+                                timing=timing)
+    results['n_words'] = n_words
+
+    return results
 
 def main():
     df = pd.read_csv('data/enron/enron_spam_data.csv', sep=',')
@@ -291,9 +357,14 @@ def main():
     # with open('results_term_strength.json', 'w') as file:
     #     json.dump(result, file)
 
-    result = mutual_information_based_method(df, n_words=10000, model=model, split=0.7)
+    # result = mutual_information_based_method(df, n_words=10000, model=model, split=0.7)
 
-    with open('results_mi.json', 'w') as file:
+    # with open('results_mi.json', 'w') as file:
+    #     json.dump(result, file)
+
+    result = chi2_information_based_method(df, n_words=10000, model=model, split=0.7)
+
+    with open('results_chi2.json', 'w') as file:
         json.dump(result, file)
 
 if __name__ == '__main__':
