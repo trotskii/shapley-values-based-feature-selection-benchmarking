@@ -3,7 +3,7 @@ import numpy as np
 from typing import Union
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.special import comb
-from sklearn.feature_selection import mutual_info_classif
+from sklearn.feature_selection import mutual_info_classif, chi2, SelectKBest
 
 class TermStrengthFeatureExtractor:
     """
@@ -116,5 +116,41 @@ class MutualInformationFeatureExtractor:
         Get n_words most important words from vocabulary per class according to mutual information values. Will return duplicates per class label for consistency with other methods.
         """
         words_per_class = {label: [vocabulary[index] for index in self.mutual_information.argsort()[-n_words:]] for label in self.classes}
+
+        return words_per_class
+
+
+class Chi2FeatureExtractor:
+    """
+    Chi - square based feature exctractor. 
+    """
+    def __init__(self):
+        self.chi2_values = {}
+        self.classes = []
+    
+    def fit(self, X, y):
+        """
+        Fit feature exctractor
+        Arguments:
+            X - counts of words (output from CountVectorizer)
+            y - array-like with class labels for X
+        """
+        if isinstance(y, np.ndarray):
+            classes = np.unique(y) 
+        elif isinstance(y, (pd.Series, pd.DataFrame)):
+            classes = y.unique()
+        else:
+            raise ValueError(f'Unexpected type for y: {type(y)}. y must be array like')
+
+        self.classes = classes
+
+        chi2_values = chi2(X, y)[0] # pick only chi2 values and discard p-values
+        self.chi2_values = chi2_values
+    
+    def get_n_words_chi2(self, n_words, vocabulary):
+        """
+        Get n_words most important words from vocabulary per class according to chi2 values. Will return duplicates per class label for consistency with other methods.
+        """
+        words_per_class = {label: [vocabulary[index] for index in self.chi2_values.argsort()[-n_words:]] for label in self.classes}
 
         return words_per_class
