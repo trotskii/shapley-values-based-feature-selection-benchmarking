@@ -13,7 +13,8 @@ class ShapFeatureExtractor:
     """
 
     def __init__(self, vocabulary):
-            self.shap_values = {}
+            self.shap_values = None
+            self.feature_strength_metric = None
             self.classes = []
             self.vocabulary = vocabulary
     
@@ -47,14 +48,28 @@ class ShapFeatureExtractor:
         shap_values = explainer.shap_values(test_dmatrix)
 
         self.shap_values = shap_values
+        self.feature_strength_metric = np.mean(np.abs(shap_values), axis=0) 
     
     def get_n_words_shap(self, n_words):
         """
         Get n_words most important words from vocabulary per class according to shap values. Will return duplicates per class label for consistency with other methods.
         """
 
-        shap_feature_importance = np.mean(np.abs(self.shap_values), axis=0) 
 
-        words_per_class = {label: [self.vocabulary[index] for index in shap_feature_importance.argsort()[-n_words:]] for label in self.classes}
+        return self.vocabulary[self.feature_strength_metric.argsort()[-n_words:]]
+    
+    def filter_n_best(self, X, n_best):
+        """
+        Leave n_best terms.
+        Arguments:
+            X - dataset to filter out terms from 
+            n_best - number of terms to leave
+        Returns:
+            X_filtered - filtered dataset
+            vocabulary_filtered - vocabulary of the new filtered dataset (will have length of n_best)
+        """
+        selected_index = self.feature_strength_metric.argsort()[-n_best:]
+        X_filtered = X[:, selected_index]
+        vocabulary_filtered = self.vocabulary[selected_index]
 
-        return words_per_class
+        return X_filtered, vocabulary_filtered
