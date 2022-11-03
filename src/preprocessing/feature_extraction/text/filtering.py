@@ -5,6 +5,7 @@ from scipy.sparse import csr_matrix, csc_matrix
 from scipy.special import comb
 from sklearn.feature_selection import mutual_info_classif, chi2
 from src.preprocessing.ctfidf import CTFIDFVectorizer
+from sklearn.preprocessing import minmax_scale
 
 class BaseTextFeatureExtractor:
     """
@@ -147,3 +148,167 @@ class Chi2FeatureExtractor(BaseTextFeatureExtractor):
         X_t = np.copyto(X_t, feature_st_matrix, where=X_t != 0)
         return X_t    
 
+
+class TRLFeatureExtractor(BaseTextFeatureExtractor):
+    """
+    Term ReLatedness based text feature extractor 
+    https://www.researchgate.net/publication/282006918_A_Supervised_Term_Selection_Technique_for_Effective_Text_Categorization
+    """
+    def __init__(self):
+        self.feature_strength_metric = None 
+    
+    @staticmethod
+    def _prob_class(y):
+        """
+        Calculate frequentist probabilities of a document belonging to a class
+        Arguments:
+            y - array-like with class labels for the documents
+        Returns:
+            P_C - dict[class_label: prob]
+        """
+        unique_classes, counts = np.unique(y, return_counts=True)
+        P_C = dict(zip(unique_classes, counts/y.size))
+        
+        return P_C
+    
+    @staticmethod
+    def _prob_term(x):
+        """
+        Calculate frequentist probabilities of a document containing each term
+        Arguments:
+            x - counts of words (output from CountVectorizer)
+        Returns:
+            P_t - numpy array with probabilities
+        """
+        x = x.copy() # avoid overwriting counts
+        x = x > 0 # we need binary mask
+        counts = x.sum(axis=0)
+        P_t = np.squeeze(np.asarray(counts/x.shape[0]))
+
+        return P_t
+
+    @staticmethod
+    def _prob_term_class(x, y):
+        """
+        Calculate probabilities that a document belonging to class c contains term t.
+        """    
+        classes = np.unique(y)
+        P_t_C = {}
+        for cls in classes:
+            idx = np.where(y == cls)[0]
+            x_cls = x[idx]
+            P_t_C[cls] = TRLFeatureExtractor._prob_term(x_cls)
+        
+        return P_t_C
+
+    @staticmethod
+    def _prob_term_not_class(x, y):
+        """
+        Calculate probabilities that a document belonging to class c contains term t.
+        """    
+        classes = np.unique(y)
+        P_t_C = {}
+        for cls in classes:
+            idx = np.where(y != cls)[0]
+            x_cls = x[idx]
+            P_t_C[cls] = TRLFeatureExtractor._prob_term(x_cls)
+        
+        return P_t_C
+
+
+    @staticmethod
+    def _calc_class_entropy(P_C):
+        """
+        Calculate E(C) from the paper
+        """
+        E_C = {}
+        for key, value in P_C.items():
+            E_C[key] = -value*np.log(value)
+        return E_C 
+
+    @staticmethod
+    def _calc_term_factor(P_t, P_C, P_t_C, P_t_not_C, E_C):
+        """
+        Calculate TF(t,C) from the paper.
+        """
+        tf = {}
+        for cls, cls_prob in P_C.items():
+            tf[cls] = minmax_scale(np.divide(np.minimum(P_t, cls_prob) - P_t_C[cls], np.maximum(P_t, cls_prob) - P_t_C[cls]) * np.divide(P_t - P_t_not_C[cls], P_t) * E_C[cls])
+        return tf
+
+    @staticmethod
+    def _calc_term_category_ratio(P_t_C, P_C, E_C):
+        """
+        Calculate TCR(t,C) from the paper
+        """
+        tcr = {}
+        for cls, cls_prob in P_C.items():
+            tcr[cls] = minmax_scale(np.divide(1+P_t_C[cls], 1+cls_prob) * E_C[cls])
+        return tcr
+
+    @staticmethod
+    def _calc_term_relative_frequency(P_t_C, P_t, E_C):
+        """
+        Calculate TRF from the paper
+        """
+        trf = {}
+        for cls, cls_prob in P_t_C.items():
+            trf[cls] = minmax_scale(np.divide(1 + cls_prob, 1 + P_t) * E_C[cls])
+        return trf
+
+
+    def fit(self, X, y):
+        """
+        Fit feature extractor
+        Arguments:
+            X - counts of words (output from CountVectorizer)
+            y - array-like with class labels for X
+        """
+        P_t_C = TRLFeatureExtractor._prob_term_class(X, y)
+        P_t_not_C = TRLFeatureExtractor._prob_term_not_class(X, y)
+        P_C = TRLFeatureExtractor._prob_class(y)
+        P_t = TRLFeatureExtractor._prob_term(X)
+        E_C = TRLFeatureExtractor._calc_class_entropy(P_C)
+        T_F = TRLFeatureExtractor._calc_term_factor(P_t, P_C, P_t_C, P_t_not_C, E_C)
+        TCR = TRLFeatureExtractor._calc_term_category_ratio(P_t_C, P_C, E_C)
+        TRF = TRLFeatureExtractor._calc_term_relative_frequency(P_t_C, P_t, E_C)
+
+        classes = np.unique(y)
+        trl = [] # no need to track what class has what trl value
+        for cls in classes:
+            trl_cls = -np.ones(X.shape[1]) # the values should be in the range 0-1, so -1 will indicate if we miss anything
+            # implementantion of conditional filling in TRL (equation 1 in the paper)
+            # conditions are implemented in the same order as defined in the equation
+            idx_cond_1 = np.where(P_t_C[cls] == 0)[0]
+            trl_cls[idx_cond_1] = 1 
+
+            idx_cond_2 = np.where((P_t_C[cls] == P_t) & (P_t == P_C[cls]))[0]
+            trl_cls[idx_cond_2] = 0
+
+            idx_cond_3 = np.where((P_t_C[cls] == P_t) & (P_t != P_C[cls]))[0]
+            trl_cls[idx_cond_3] = (1 - TCR[cls])[idx_cond_3]
+
+            idx_cond_4 = np.where((P_t_C[cls] == P_C[cls]) & (P_t != P_C[cls]))[0]
+            trl_cls[idx_cond_4] = (1 - TRF[cls])[idx_cond_4]
+
+            idx_cond_5 = np.where(trl_cls == -1)[0]
+            trl_cls[idx_cond_5] = (1 - T_F[cls])[idx_cond_5]
+
+            trl.append(trl_cls)
+        
+        true_trl = np.minimum.reduce(trl)
+        self.feature_strength_metric = 1-true_trl # invert trl value, so that the higher the value, the better the term is
+        # helps with consistency with other methods
+        # trl is always between 0 and 1 with 0 being perfect feature and 1 being useless, so 1 - true_trl works
+
+    def transform(self, X):
+        """
+        Transform word presense into term strength. Returns s_t for each class for each word.
+        Arguments:
+            X - binary output from CountVectorizer
+        Returns:
+            s_t - dict with a structure {class_label : transformed features as csr_matrix}
+        """
+        X = X.asfptype()
+        return csr_matrix(X.minimum(np.tile(self.feature_strength_metric, (X.shape[0], 1)))) # sets term (0 or 1) to term strength, term strength is <= 1, so element wise min works
+        
