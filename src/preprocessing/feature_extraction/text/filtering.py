@@ -6,6 +6,7 @@ from scipy.special import comb
 from sklearn.feature_selection import mutual_info_classif, chi2
 from src.preprocessing.ctfidf import CTFIDFVectorizer
 from sklearn.preprocessing import minmax_scale
+from scipy.stats import entropy
 
 class BaseTextFeatureExtractor:
     """
@@ -44,6 +45,7 @@ class BaseTextFeatureExtractor:
             vocabulary_filtered - vocabulary of the new filtered dataset (will have length of n_best)
         """
         selected_index = self.feature_strength_metric.argsort()[-n_best:]
+        print(selected_index.shape)
         X_filtered = X[:, selected_index]
         vocabulary_filtered = vocabulary[selected_index]
 
@@ -311,4 +313,114 @@ class TRLFeatureExtractor(BaseTextFeatureExtractor):
         """
         X = X.asfptype()
         return csr_matrix(X.minimum(np.tile(self.feature_strength_metric, (X.shape[0], 1)))) # sets term (0 or 1) to term strength, term strength is <= 1, so element wise min works
+
+class ECCDFeatureExtractor(BaseTextFeatureExtractor):
+    """
+    ECCD text feature extractor: https://dl.acm.org/doi/10.1145/1982185.1982389
+    """
+    def __init__(self):
+        self.feature_strength_metric = None
+
+    @staticmethod
+    def _calc_term_frequency(X, y):
+        """
+        Calculate term frequencies for each class.
+        Arguments:
+            X - word counts from CountVectorizer
+            y - class labels
+        Returns:
+            tf - np.array with vstacked frequencies
+        """
+        classes = np.unique(y)
+        X = X.copy() # avoid overwriting
+        X = X > 0
+        tf = []
+        for cls in classes:
+            idx = np.where(y == cls)[0]
+            X_cls = X[idx]
+            tf.append(np.squeeze(np.asarray(np.divide(X_cls.sum(axis=0), X.sum(axis=0)))))
+
+        return np.vstack(tf)
+
+    @staticmethod
+    def _calc_term_entropy(X, y):
+        """
+        Calculate Shannon entropy for each term.
+        Arguments:
+            X - word counts from CountVectorizer
+            y - class labels
+        Returns:
+            E - numpy array with entropy values
+        """
+        classes = np.unique(y)
+        tf = ECCDFeatureExtractor._calc_term_frequency(X, y)
+        E = entropy(tf, axis=0, base=2)
+        return E
+    
+    @staticmethod
+    def _calc_P_t_C(X, y):
+        """
+        Calculate probability of observing a term in a document belonging to a category
+        Arguments:
+            X - word counts from CountVectorizer
+            y - class labels
+        Returns:
+            P_t_C - dict[class label: probability of observing each term (np.array)]
+        """
+        classes = np.unique(y)
+        P_t_C = {}
+        X = X.copy() # avoid overwriting
+        X = X > 0
+        for cls in classes:
+            idx = np.where(y == cls)[0]
+            X_cls = X[idx]
+            counts = np.asarray(X_cls.sum(axis=0))
+            P_t_C[cls] = counts/X_cls.shape[0]
+        return P_t_C
+
+    @staticmethod
+    def _calc_P_t_not_C(X, y):
+        """
+        Calculate probability of observing a term in a document not belonging to a category
+        Arguments:
+            X - word counts from CountVectorizer
+            y - class labels
+        Returns:
+            P_t_C - dict[class label: probability of observing each term (np.array)]
+        """
+        classes = np.unique(y)
+        P_t_C = {}
+        X = X.copy() # avoid overwriting
+        X = X > 0
+        for cls in classes:
+            idx = np.where(y != cls)[0]
+            X_cls = X[idx]
+            counts = np.asarray(X_cls.sum(axis=0))
+            P_t_C[cls] = counts/X_cls.shape[0]
+        return P_t_C
+
+    def fit(self, X, y):
+        """
+        Fit feature extractor
+        Arguments:
+            X - counts of words (output from CountVectorizer)
+            y - array-like with class labels for X
+        """
+        E = ECCDFeatureExtractor._calc_term_entropy(X, y)
+        P_t_C = ECCDFeatureExtractor._calc_P_t_C(X, y)
+        P_t_not_C = ECCDFeatureExtractor._calc_P_t_not_C(X, y)
+        E_max = np.max(E)
+
+        classes = np.unique(y)
+        ECCD = []
+        for cls in classes:
+            ECCD.append( np.multiply(P_t_C[cls] - P_t_not_C[cls], np.divide(E_max - E,E_max)))
         
+        ECCD = np.maximum.reduce(ECCD)
+        self.feature_strength_metric = np.squeeze(ECCD)
+        
+    def transform(self, X):
+        X_t = X.copy()
+        feature_st_matrix = np.tile(self.feature_strength_metric, (X.shape[0], 1))
+        X_t = np.copyto(X_t, feature_st_matrix, where=X_t != 0)
+        return X_t 

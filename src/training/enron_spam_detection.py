@@ -274,13 +274,19 @@ def main():
     # with open('results_chi_2.json', 'w') as file:
     #     json.dump(result, file)
 
-    logging.info('Starting TRL extractor testing.')
-    trl_extractor = filter.TRLFeatureExtractor()
-    result = test_extractor(model, trl_extractor, df, n_words=10000, split=0.5)
+    # logging.info('Starting TRL extractor testing.')
+    # trl_extractor = filter.TRLFeatureExtractor()
+    # result = test_extractor(model, trl_extractor, df, n_words=10000, split=0.5)
 
-    with open('result_tlr.json', 'w') as file:
+    # with open('result_tlr.json', 'w') as file:
+    #     json.dump(result, file)
+
+    logging.info('Starting ECCD extractor testing.')
+    eccd_extractor = filter.ECCDFeatureExtractor()
+    result = test_extractor(model, eccd_extractor, df, n_words=10000, split=0.5)
+
+    with open('result_eccd.json', 'w') as file:
         json.dump(result, file)
-
     # logging.info('Starting shap extractor testing.')
     # result = shap_based_method(df, n_words=10000, model=model, split=0.5)
 
