@@ -45,7 +45,6 @@ class BaseTextFeatureExtractor:
             vocabulary_filtered - vocabulary of the new filtered dataset (will have length of n_best)
         """
         selected_index = self.feature_strength_metric.argsort()[-n_best:]
-        print(selected_index.shape)
         X_filtered = X[:, selected_index]
         vocabulary_filtered = vocabulary[selected_index]
 
@@ -424,3 +423,68 @@ class ECCDFeatureExtractor(BaseTextFeatureExtractor):
         feature_st_matrix = np.tile(self.feature_strength_metric, (X.shape[0], 1))
         X_t = np.copyto(X_t, feature_st_matrix, where=X_t != 0)
         return X_t 
+
+
+class LinearMeasureBasedFeatureExtractor(BaseTextFeatureExtractor):
+    """
+    Linear measure based feature extractor. Ref: https://ieeexplore.ieee.org/abstract/document/1490529
+    """
+    k = 1
+
+    def __init__(self, k=1):
+        self.k = k
+
+    @staticmethod
+    def calc_a(X, y):
+        """
+        Calculate number of documents of the category c in which word w appears
+        """
+        X_binary = X.copy()
+        X_binary = X_binary > 0
+        classes = np.unique(y)
+
+        a = {}
+
+        for cls in classes:
+            idx = np.where(y == cls)
+            X_cls = X_binary[idx]
+            a[cls] = np.asarray(X_cls.sum(axis=0))
+        
+        return a
+
+    @staticmethod
+    def calc_b(X, y):
+        """
+        Calculate number of documents in which word w appears, but do not belong to c
+        """
+        X_binary = X.copy()
+        X_binary = X_binary > 0
+        classes = np.unique(y)
+
+        b = {}
+
+        for cls in classes:
+            idx = np.where(y != cls)
+            X_cls = X_binary[idx]
+            b[cls] = np.asarray(X_cls.sum(axis=0))
+        
+        return b
+
+    def fit(self, X, y):
+        """
+        Fit feature extractor
+        Arguments:
+            X - counts of words (output from CountVectorizer)
+            y - array-like with class labels for X
+        """
+        a = LinearMeasureBasedFeatureExtractor.calc_a(X, y)
+        b = LinearMeasureBasedFeatureExtractor.calc_b(X, y)
+        classes = np.unique(y)
+
+        lm = []
+
+        for cls in classes:
+            lm.append(self.k * a[cls] - b[cls])
+        
+        lm = np.maximum.reduce(lm)
+        self.feature_strength_metric = np.squeeze(lm) 

@@ -287,6 +287,14 @@ def main():
 
     with open('result_eccd.json', 'w') as file:
         json.dump(result, file)
+
+
+    logging.info('Starting LM extractor testing.')
+    lm_extractor = filter.LinearMeasureBasedFeatureExtractor(k=50)
+    result = test_extractor(model, lm_extractor, df, n_words=10000, split=0.5)
+
+    with open('result_lm.json', 'w') as file:
+        json.dump(result, file)
     # logging.info('Starting shap extractor testing.')
     # result = shap_based_method(df, n_words=10000, model=model, split=0.5)
 
