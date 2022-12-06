@@ -3,7 +3,8 @@ import numpy as np
 from typing import Union
 from scipy.sparse import csr_matrix, csc_matrix
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
+import sklearn
 import shap
 
 
@@ -39,9 +40,7 @@ class ShapFeatureExtractor:
         train_dmatrix = xgb.DMatrix(X_train, label=y_train)
         test_dmatrix = xgb.DMatrix(X_test, label=y_test)
 
-        dmatrix = xgb.DMatrix(X, label=y)
         param = {'max_depth':5, 'eta':0.1, 'lambda': 0.01, 'objective':'binary:logistic' }
-
         model = xgb.train(param, dtrain=train_dmatrix, evals=[(train_dmatrix, 'train'), (test_dmatrix, 'test')], num_boost_round=1000, early_stopping_rounds=100, verbose_eval=False)
 
         explainer = shap.TreeExplainer(model, feature_names=self.vocabulary)
@@ -73,3 +72,72 @@ class ShapFeatureExtractor:
         vocabulary_filtered = self.vocabulary[selected_index]
 
         return X_filtered, vocabulary_filtered
+
+
+class LinearForwardSearch():
+    
+    estimator = None
+    ranker = None
+    vocabulary = None
+    selected_idx = None
+    epsillon = 1E-4 
+
+    def __init__(self, estimator, ranker, vocabulary):
+        """
+        Linear Forward Search feature extractor. Ref: https://researchcommons.waikato.ac.nz/handle/10289/2205
+        Arguments:
+            estimator - estimator to use for feature subset evaluation
+            ranker - filtering feature extractor to use for initial feature ranking
+            vocabulary - list of words present in the dataset
+        """
+        self.estimator = estimator
+        self.ranker = ranker
+        self.vocabulary = vocabulary
+
+    def forward_search_step(self, X, y, k, R, selected_index):
+        estimator = sklearn.base.clone(self.estimator)
+        ranked_features_idx = R[-(k+len(selected_index)):]
+        features_to_check = [idx for idx in ranked_features_idx if idx not in selected_index]
+
+        best_score = 0
+        best_idx = -1
+
+        for feature in features_to_check:
+            curr_feature_list = np.append(selected_index, feature)
+            X_ = X[:,curr_feature_list]
+            scores = cross_val_score(estimator, X_, y, cv=5, scoring='roc_auc', n_jobs=-1)
+            score = np.mean(scores)
+            if score > best_score:
+                best_score = score 
+                best_idx = feature
+        
+        return np.append(selected_index, best_idx).astype(int), best_score
+
+
+
+    def fit(self, X, y, k, n_words = None):
+        self.ranker.fit(X, y)
+        R = self.ranker.feature_strength_metric.argsort()
+
+        if n_words is None:
+            selected_idx = []
+            best_score = 0
+            for i in range(X.shape[1]):
+                selected_idx, score = self.forward_search_step(X, y, k, R, selected_idx)
+                if (score - best_score) < self.epsillon:
+                    break
+                best_score = score
+        else:
+            selected_idx = []
+            for i in range(n_words):
+                selected_idx, score = self.forward_search_step(X, y, k, R, selected_idx)
+                print(f'score: {score} n_words: {len(selected_idx)}')
+
+        
+        self.selected_idx = R[selected_idx]
+        return self.selected_idx
+    
+    def get_selected_words_lfs(self):
+        return self.vocabulary[self.selected_idx]
+        
+
