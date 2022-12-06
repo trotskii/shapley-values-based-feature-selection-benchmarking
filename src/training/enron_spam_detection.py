@@ -237,6 +237,61 @@ def shap_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEs
 
     return results
 
+def lfs_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEstimator, split: float) -> dict:
+    """
+    Train model with mutual information based features selection.
+    """
+    """
+    Train passed model on a features selected by passed extractor.
+    """
+    timing = {}
+    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+
+    count_vectorizer = CountVectorizer(binary=True)
+    count_vectorizer.fit(X_train)
+
+    X_train_vectorized = count_vectorizer.transform(X_train)
+    X_test_vectorized = count_vectorizer.transform(X_test)
+    
+    vocabulary = count_vectorizer.get_feature_names_out()
+    ranker = filter.Chi2FeatureExtractor()
+    extractor = wrapping.LinearForwardSearch(model, ranker, vocabulary)
+
+    start = timer()
+    extractor.fit(X_train_vectorized, y_train, k=10, n_words=n_words)
+    end = timer()
+    timing['extractor_fit'] = str(timedelta(seconds=end-start))
+    logging.info('Fit extractor.')
+    
+    start = timer()
+    X_train_vectorized_filtered = X_train_vectorized[:, extractor.selected_idx]
+    X_test_vectorized_filtered = X_test_vectorized[:, extractor.selected_idx]
+    timing['filtered_features'] = str(timedelta(seconds=end-start))
+    tfidf_transformer = TfidfTransformer()
+
+    start = timer()
+    X_train_vectorized_tfidf = tfidf_transformer.fit_transform(X_train_vectorized_filtered)
+    X_test_vectorized_tfidf = tfidf_transformer.transform(X_test_vectorized_filtered)
+    end = timer()
+    timing['vectorized_time'] = str(timedelta(seconds=end-start))
+    logging.info('Vectorized dataset.')
+
+    start = timer()
+    model.fit(X_train_vectorized_tfidf, y_train)
+    end = timer()    
+    timing['model_training_time'] = str(timedelta(seconds=end-start))
+    logging.info('Model training finished.')
+
+    results = record_results(model=model, 
+                                X_t=X_train_vectorized_tfidf,
+                                y_t=y_train,
+                                X_val=X_test_vectorized_tfidf,
+                                y_val=y_test,
+                                timing=timing)
+    results['n_words'] = n_words
+
+    return results
+
 def main():
     df = pd.read_csv('data/enron/enron_spam_data.csv', sep=',').sample(n=5000)
     df = df.fillna('')
@@ -281,26 +336,31 @@ def main():
     # with open('result_tlr.json', 'w') as file:
     #     json.dump(result, file)
 
-    logging.info('Starting ECCD extractor testing.')
-    eccd_extractor = filter.ECCDFeatureExtractor()
-    result = test_extractor(model, eccd_extractor, df, n_words=10000, split=0.5)
+    # logging.info('Starting ECCD extractor testing.')
+    # eccd_extractor = filter.ECCDFeatureExtractor()
+    # result = test_extractor(model, eccd_extractor, df, n_words=10000, split=0.5)
 
-    with open('result_eccd.json', 'w') as file:
-        json.dump(result, file)
+    # with open('result_eccd.json', 'w') as file:
+    #     json.dump(result, file)
 
 
-    logging.info('Starting LM extractor testing.')
-    lm_extractor = filter.LinearMeasureBasedFeatureExtractor(k=50)
-    result = test_extractor(model, lm_extractor, df, n_words=10000, split=0.5)
+    # logging.info('Starting LM extractor testing.')
+    # lm_extractor = filter.LinearMeasureBasedFeatureExtractor(k=50)
+    # result = test_extractor(model, lm_extractor, df, n_words=10000, split=0.5)
 
-    with open('result_lm.json', 'w') as file:
-        json.dump(result, file)
+    # with open('result_lm.json', 'w') as file:
+    #     json.dump(result, file)
     # logging.info('Starting shap extractor testing.')
     # result = shap_based_method(df, n_words=10000, model=model, split=0.5)
 
     # with open('results_shap.json', 'w') as file:
     #     json.dump(result, file)
 
+    logging.info('Starting lfs extractor testing.')
+    result = lfs_based_method(df, n_words=10000, model=model, split=0.5)
+
+    with open('results_lfs.json', 'w') as file:
+        json.dump(result, file)
     
 
     # words_per_class_dict = {}
