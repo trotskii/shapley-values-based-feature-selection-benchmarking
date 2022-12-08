@@ -6,6 +6,7 @@ from scipy.special import comb
 from sklearn.feature_selection import mutual_info_classif, chi2
 from src.preprocessing.ctfidf import CTFIDFVectorizer
 from sklearn.preprocessing import minmax_scale
+from sklearn.feature_extraction.text import CountVectorizer
 from scipy.stats import entropy
 
 class BaseTextFeatureExtractor:
@@ -49,6 +50,37 @@ class BaseTextFeatureExtractor:
         vocabulary_filtered = vocabulary[selected_index]
 
         return X_filtered, vocabulary_filtered
+
+class CTFIDFFeatureExtractor(BaseTextFeatureExtractor):
+    """
+    Calculate feature strength according to ctfidf.
+    """
+    def __init__(self):
+        self.feature_strength_metric = None 
+    
+    def fit(self, df):
+        text_per_class = df.groupby(['Label'], as_index=False).agg({'Text': ' '.join})
+        count_vectorizer = CountVectorizer().fit(text_per_class['Text'])
+        count = count_vectorizer.transform(text_per_class['Text'])
+
+        ctfidf = CTFIDFVectorizer().fit_transform(count, n_samples=df.shape[0]).toarray()
+        labels = text_per_class['Label'].unique()
+
+        feature_strength = []
+        for label in labels:
+            feature_strength.append(ctfidf[label])
+        self.feature_strength_metric = np.squeeze(np.maximum.reduce(feature_strength))
+
+    def transform(self, X):
+        """
+        Transforms input to corresponding feature importance values
+        """
+        X_t = X.copy()
+        feature_st_matrix = np.tile(self.feature_strength_metric, (X.shape[0], 1))
+        X_t = np.copyto(X_t, feature_st_matrix, where=X_t != 0)
+        
+        return X_t 
+
 
 
 class TermStrengthFeatureExtractor(BaseTextFeatureExtractor):
