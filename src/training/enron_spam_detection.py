@@ -7,7 +7,7 @@ from datetime import timedelta
 import logging
 import json
 import sys
-import pickle
+from functools import partial
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
@@ -19,7 +19,8 @@ import src.preprocessing.text_preprocessing as tp
 import src.preprocessing.feature_extraction.text.filtering as filter 
 import src.preprocessing.feature_extraction.text.wrapping as wrapping
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
+
 
 def record_results(model: sklearn.base.BaseEstimator, X_t: ArrayLike, y_t: ArrayLike, X_val: ArrayLike, y_val: ArrayLike, timing: dict) -> dict:
     """
@@ -62,7 +63,7 @@ def record_results(model: sklearn.base.BaseEstimator, X_t: ArrayLike, y_t: Array
 
     return results
 
-def test_extractor(model: sklearn.base.BaseEstimator, extractor: filter.BaseTextFeatureExtractor, df: pd.DataFrame, n_words: int, split: float) -> dict:
+def test_extractor(model: sklearn.base.BaseEstimator, extractor: filter.BaseTextFeatureExtractor, df: pd.DataFrame, split: float, n_words: int) -> dict:
     """
     Train passed model on a features selected by passed extractor.
     """
@@ -87,102 +88,76 @@ def test_extractor(model: sklearn.base.BaseEstimator, extractor: filter.BaseText
     X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words, vocabulary)
     end = timer()
     timing['filtered_features'] = str(timedelta(seconds=end-start))
-    tfidf_transformer = TfidfTransformer()
+
 
     start = timer()
-    X_train_vectorized_tfidf = tfidf_transformer.fit_transform(X_train_vectorized_filtered)
-    X_test_vectorized_tfidf = tfidf_transformer.transform(X_test_vectorized_filtered)
-    end = timer()
-    timing['vectorized_time'] = str(timedelta(seconds=end-start))
-    logging.info('Vectorized dataset.')
-
-    start = timer()
-    model.fit(X_train_vectorized_tfidf, y_train)
+    model.fit(X_train_vectorized_filtered, y_train)
     end = timer()    
     timing['model_training_time'] = str(timedelta(seconds=end-start))
     logging.info('Model training finished.')
 
     results = record_results(model=model, 
-                                X_t=X_train_vectorized_tfidf,
+                                X_t=X_train_vectorized_filtered,
                                 y_t=y_train,
-                                X_val=X_test_vectorized_tfidf,
+                                X_val=X_test_vectorized_filtered,
                                 y_val=y_test,
                                 timing=timing)
     results['n_words'] = n_words
+    results['selected_vocabulary'] = vocabulary_filtered.tolist()
 
     return results
   
 
 
-def tfidf_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEstimator, split: float) -> dict:
+def tfidf_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float, n_words: int) -> dict:
     """
-    Train passed model according to tfidf feature selection.
-    Arguments: 
-        df - dataframe with 'Lable' and 'Text' for training and validation
-        n_words - number of important words per class to keep
-        model - sklearn model
-        split - train/test split (0,1)
-    Retruns:
-        results - dictionary with performance metrics
+    Train passed model on a features selected by passed extractor.
     """
     timing = {}
-
     X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
 
-    df_train = pd.DataFrame(X_train)
-    df_train['Label'] = y_train 
+    count_vectorizer = CountVectorizer(binary=True)
+    count_vectorizer.fit(X_train)
 
-    df_test = pd.DataFrame(X_test)
-    df_test['Label'] = y_test
+    X_train_vectorized = count_vectorizer.transform(X_train)
+    X_test_vectorized = count_vectorizer.transform(X_test)
 
+    extractor = filter.CTFIDFFeatureExtractor()
+    df_extractor_train = pd.DataFrame(X_train, columns=['Text'])
+    df_extractor_train['Label'] = y_train
     start = timer()
-    words_per_class = tp.get_n_most_important_words_cftfidf(df_train, n_words=n_words)
+    extractor.fit(df_extractor_train)
     end = timer()
-    timing['n_important_words_train_time'] = str(timedelta(seconds=end-start))
-    logging.info('Got important words per class.')
+    timing['extractor_fit'] = str(timedelta(seconds=end-start))
+    logging.info('Fit extractor.')
     
-
     start = timer()
-    filtered_train_df = tp.filter_unimportant_words(df_train, words_per_class)
+    vocabulary = count_vectorizer.get_feature_names_out()
+    X_train_vectorized_filtered, vocabulary_filtered = extractor.filter_n_best(X_train_vectorized, n_words, vocabulary)
+    X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words, vocabulary)
     end = timer()
-    timing['filtered_unimportant_words_train_set_time'] = str(timedelta(seconds=end-start))
-    logging.info('Filtered unimportant words from dataset.')
+    timing['filtered_features'] = str(timedelta(seconds=end-start))
+
 
     start = timer()
-    filtered_test_df = tp.filter_unimportant_words(df_test, words_per_class)
-    end = timer()
-    timing['filtered_unimportant_words_train_set_time'] = str(timedelta(seconds=end-start))
-    logging.info('Filtered unimportant words from dataset.')
-
-
-    tfidf_vectorizer = TfidfVectorizer(analyzer='word')
-
-    start = timer()
-    X_train_vectorized = tfidf_vectorizer.fit_transform(filtered_train_df['Text'])
-    X_test_vectorized = tfidf_vectorizer.transform(filtered_test_df['Text'])
-    end = timer()
-    timing['vectorized_time'] = str(timedelta(seconds=end-start))
-    logging.info('Vectorized dataset.')
-
-    start = timer()
-    model.fit(X_train_vectorized, filtered_train_df['Label'])
+    model.fit(X_train_vectorized_filtered, y_train)
     end = timer()    
     timing['model_training_time'] = str(timedelta(seconds=end-start))
     logging.info('Model training finished.')
 
-    results = record_results(model=model,
-                                X_t=X_train_vectorized,
-                                y_t=filtered_train_df['Label'],
-                                X_val=X_test_vectorized,
-                                y_val=filtered_test_df['Label'],
+    results = record_results(model=model, 
+                                X_t=X_train_vectorized_filtered,
+                                y_t=y_train,
+                                X_val=X_test_vectorized_filtered,
+                                y_val=y_test,
                                 timing=timing)
+    results['n_words'] = n_words
+    results['selected_vocabulary'] = vocabulary_filtered.tolist()
 
-    results['n_important_words'] = n_words
-
-    return results, words_per_class
+    return results
 
 
-def shap_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEstimator, split: float) -> dict:
+def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float, n_words: int) -> dict:
     """
     Train model with mutual information based features selection.
     """
@@ -212,32 +187,25 @@ def shap_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEs
     X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words)
     end = timer()
     timing['filtered_features'] = str(timedelta(seconds=end-start))
-    tfidf_transformer = TfidfTransformer()
-
+   
     start = timer()
-    X_train_vectorized_tfidf = tfidf_transformer.fit_transform(X_train_vectorized_filtered)
-    X_test_vectorized_tfidf = tfidf_transformer.transform(X_test_vectorized_filtered)
-    end = timer()
-    timing['vectorized_time'] = str(timedelta(seconds=end-start))
-    logging.info('Vectorized dataset.')
-
-    start = timer()
-    model.fit(X_train_vectorized_tfidf, y_train)
+    model.fit(X_train_vectorized_filtered, y_train)
     end = timer()    
     timing['model_training_time'] = str(timedelta(seconds=end-start))
     logging.info('Model training finished.')
 
     results = record_results(model=model, 
-                                X_t=X_train_vectorized_tfidf,
+                                X_t=X_train_vectorized_filtered,
                                 y_t=y_train,
-                                X_val=X_test_vectorized_tfidf,
+                                X_val=X_test_vectorized_filtered,
                                 y_val=y_test,
                                 timing=timing)
     results['n_words'] = n_words
+    results['selected_vocabulary'] = vocabulary_filtered.tolist()
 
     return results
 
-def lfs_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEstimator, split: float) -> dict:
+def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float, n_words: int) -> dict:
     """
     Train model with mutual information based features selection.
     """
@@ -258,7 +226,7 @@ def lfs_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEst
     extractor = wrapping.LinearForwardSearch(model, ranker, vocabulary)
 
     start = timer()
-    extractor.fit(X_train_vectorized, y_train, k=10, n_words=n_words)
+    extractor.fit(X_train_vectorized, y_train, k=50, n_words=n_words)
     end = timer()
     timing['extractor_fit'] = str(timedelta(seconds=end-start))
     logging.info('Fit extractor.')
@@ -267,33 +235,26 @@ def lfs_based_method(df: pd.DataFrame, n_words: int, model: sklearn.base.BaseEst
     X_train_vectorized_filtered = X_train_vectorized[:, extractor.selected_idx]
     X_test_vectorized_filtered = X_test_vectorized[:, extractor.selected_idx]
     timing['filtered_features'] = str(timedelta(seconds=end-start))
-    tfidf_transformer = TfidfTransformer()
 
     start = timer()
-    X_train_vectorized_tfidf = tfidf_transformer.fit_transform(X_train_vectorized_filtered)
-    X_test_vectorized_tfidf = tfidf_transformer.transform(X_test_vectorized_filtered)
-    end = timer()
-    timing['vectorized_time'] = str(timedelta(seconds=end-start))
-    logging.info('Vectorized dataset.')
-
-    start = timer()
-    model.fit(X_train_vectorized_tfidf, y_train)
+    model.fit(X_train_vectorized_filtered, y_train)
     end = timer()    
     timing['model_training_time'] = str(timedelta(seconds=end-start))
     logging.info('Model training finished.')
 
     results = record_results(model=model, 
-                                X_t=X_train_vectorized_tfidf,
+                                X_t=X_train_vectorized_filtered,
                                 y_t=y_train,
-                                X_val=X_test_vectorized_tfidf,
+                                X_val=X_test_vectorized_filtered,
                                 y_val=y_test,
                                 timing=timing)
     results['n_words'] = n_words
+    results['selected_vocabulary'] = extractor.get_selected_words_lfs().tolist()
 
     return results
 
 def main():
-    df = pd.read_csv('data/enron/enron_spam_data.csv', sep=',').sample(n=5000)
+    df = pd.read_csv('data/enron/enron_spam_data.csv', sep=',')
     df = df.fillna('')
     df = df.astype('str')
     
@@ -303,75 +264,32 @@ def main():
 
     model = SVC()
 
-    # result, words_per_class_tfidf = tfidf_based_method(df, n_words=10000, model=model, split=0.7)
+    n_words_options = [10, 50, 100, 200, 500, 1000, 3000, 5000, 10000, 15000, 25000]
+    filter_extractors = {}
+    filter_extractors['term_strength'] = filter.TermStrengthFeatureExtractor()
+    filter_extractors['mutual_information'] = filter.MutualInformationFeatureExtractor()
+    filter_extractors['chi2'] = filter.Chi2FeatureExtractor()
+    filter_extractors['trl'] = filter.TRLFeatureExtractor()
+    filter_extractors['eccd'] = filter.ECCDFeatureExtractor()
+    filter_extractors['linear_measure_5'] = filter.LinearMeasureBasedFeatureExtractor(k=5)
 
-    # with open('results_tfidf.json', 'w') as file:
-    #     json.dump(result, file)
+    method_list = {}
+    for name, extractor in filter_extractors.items():
+        method_list[name] = partial(test_extractor, model, extractor, df, 0.7)
 
-    # logging.info('Starting term strength testing.')
-    # term_strength_extractor = filter.TermStrengthFeatureExtractor()
-    # result = test_extractor(model, term_strength_extractor, df, n_words=10000, split=0.5)
+    method_list['shap'] = partial(shap_based_method, df, model, 0.7)
+    method_list['tfidf'] = partial(tfidf_based_method, df, model, 0.7)
+    # method_list['lfs'] = partial(lfs_based_method, df, model, 0.7)
 
-    # with open('results_term_strength.json', 'w') as file:
-    #     json.dump(result, file)
-    
-    # mi_extractor = filter.MutualInformationFeatureExtractor()
-    # result = test_extractor(model, mi_extractor, df, n_words=10000, split=0.5)
-
-    # logging.info('Starting mutual information testing.')
-    # with open('results_mutual_information.json', 'w') as file:
-    #     json.dump(result, file)
-    
-    # logging.info('Starting chi2 extractor testing.')
-    # chi2_extractor = filter.Chi2FeatureExtractor()
-    # result = test_extractor(model, chi2_extractor, df, n_words=10000, split=0.5)
-
-    # with open('results_chi_2.json', 'w') as file:
-    #     json.dump(result, file)
-
-    # logging.info('Starting TRL extractor testing.')
-    # trl_extractor = filter.TRLFeatureExtractor()
-    # result = test_extractor(model, trl_extractor, df, n_words=10000, split=0.5)
-
-    # with open('result_tlr.json', 'w') as file:
-    #     json.dump(result, file)
-
-    # logging.info('Starting ECCD extractor testing.')
-    # eccd_extractor = filter.ECCDFeatureExtractor()
-    # result = test_extractor(model, eccd_extractor, df, n_words=10000, split=0.5)
-
-    # with open('result_eccd.json', 'w') as file:
-    #     json.dump(result, file)
+    for n_words in n_words_options:
+        for name, method in method_list.items():
+            print(f'Testing {name} at {n_words} words.')
+            result = method(n_words)
+            with open(f'results/enron/results_{name}_{n_words}.json', 'w') as file:
+                json.dump(result, file) 
 
 
-    # logging.info('Starting LM extractor testing.')
-    # lm_extractor = filter.LinearMeasureBasedFeatureExtractor(k=50)
-    # result = test_extractor(model, lm_extractor, df, n_words=10000, split=0.5)
 
-    # with open('result_lm.json', 'w') as file:
-    #     json.dump(result, file)
-    # logging.info('Starting shap extractor testing.')
-    # result = shap_based_method(df, n_words=10000, model=model, split=0.5)
-
-    # with open('results_shap.json', 'w') as file:
-    #     json.dump(result, file)
-
-    logging.info('Starting lfs extractor testing.')
-    result = lfs_based_method(df, n_words=10000, model=model, split=0.5)
-
-    with open('results_lfs.json', 'w') as file:
-        json.dump(result, file)
-    
-
-    # words_per_class_dict = {}
-    # words_per_class_dict['tfidf'] = words_per_class_tfidf
-    # words_per_class_dict['term_strength'] = words_per_class_term_strength
-    # words_per_class_dict['mi'] = words_per_class_mi
-    # words_per_class_dict['chi2'] = words_per_class_chi2
-    # words_per_class_dict['shap'] = words_per_class_shap
-
-    # with open('words_per_class_dict.pkl', 'wb') as file:
-    #     pickle.dump(words_per_class_dict, file, protocol=pickle.HIGHEST_PROTOCOL)
 
 if __name__ == '__main__':
     main()

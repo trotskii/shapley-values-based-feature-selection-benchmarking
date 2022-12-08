@@ -197,7 +197,7 @@ def get_n_most_important_words_cftfidf(df: pd.DataFrame, n_words: int) -> dict[s
     ctfidf = CTFIDFVectorizer().fit_transform(count, n_samples=df.shape[0]).toarray()
 
     labels = text_per_class['Label'].unique()
-
+    n_words = n_words//len(labels) 
     words_per_class = {label: [words[index] for index in ctfidf[label].argsort()[-n_words:]] for label in labels}
 
     return words_per_class

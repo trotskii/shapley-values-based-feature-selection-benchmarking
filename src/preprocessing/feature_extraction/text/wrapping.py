@@ -35,19 +35,34 @@ class ShapFeatureExtractor:
         
         self.classes = classes
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)
 
         train_dmatrix = xgb.DMatrix(X_train, label=y_train)
         test_dmatrix = xgb.DMatrix(X_test, label=y_test)
 
-        param = {'max_depth':5, 'eta':0.1, 'lambda': 0.01, 'objective':'binary:logistic' }
+        if len(classes) > 2:
+            param = {'max_depth':5, 'eta':0.1, 'lambda': 0.01, 'objective':'multi:softprob', 'num_class': len(classes) }
+        else:
+            param = {'max_depth':5, 'eta':0.1, 'lambda': 0.01, 'objective':'binary:logistic' }
+            
         model = xgb.train(param, dtrain=train_dmatrix, evals=[(train_dmatrix, 'train'), (test_dmatrix, 'test')], num_boost_round=1000, early_stopping_rounds=100, verbose_eval=False)
 
         explainer = shap.TreeExplainer(model, feature_names=self.vocabulary)
         shap_values = explainer.shap_values(test_dmatrix)
 
         self.shap_values = shap_values
-        self.feature_strength_metric = np.mean(np.abs(shap_values), axis=0) 
+
+
+        if len(classes) > 2:
+            # for multiclass classification, shap values are unique per each category, so we take the max 
+            # across the classes (just like with filtering methods, where applicable)
+            shap_vals_avg_per_class_list = []
+            for cls in shap_values:
+                shap_vals_avg_per_class_list.append(np.mean(np.abs(cls), axis=0) )
+            shap_vals_avg_per_class = np.vstack(shap_vals_avg_per_class_list)
+            self.feature_strength_metric = np.maximum.reduce(shap_vals_avg_per_class)
+        else: 
+            self.feature_strength_metric = np.mean(np.abs(shap_values), axis=0) 
     
     def get_n_words_shap(self, n_words):
         """
@@ -131,8 +146,6 @@ class LinearForwardSearch():
             selected_idx = []
             for i in range(n_words):
                 selected_idx, score = self.forward_search_step(X, y, k, R, selected_idx)
-                print(f'score: {score} n_words: {len(selected_idx)}')
-
         
         self.selected_idx = R[selected_idx]
         return self.selected_idx
