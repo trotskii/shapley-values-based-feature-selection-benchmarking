@@ -83,7 +83,10 @@ class ShapFeatureExtractor:
             vocabulary_filtered - vocabulary of the new filtered dataset (will have length of n_best)
         """
         selected_index = self.feature_strength_metric.argsort()[-n_best:]
-        X_filtered = X[:, selected_index]
+        if isinstance(X, pd.DataFrame):
+            X_filtered = X.iloc[:, selected_index]
+        else:
+            X_filtered = X[:, selected_index]
         vocabulary_filtered = self.vocabulary[selected_index]
 
         return X_filtered, vocabulary_filtered
@@ -119,7 +122,10 @@ class LinearForwardSearch():
 
         for feature in features_to_check:
             curr_feature_list = np.append(selected_index, feature)
-            X_ = X[:,curr_feature_list]
+            if isinstance(X, pd.DataFrame):
+                X_ = X.iloc[:, curr_feature_list]
+            else:
+                X_ = X[:,curr_feature_list]
             scores = cross_val_score(estimator, X_, y, cv=5, scoring='roc_auc', n_jobs=-1)
             score = np.mean(scores)
             if score > best_score:
