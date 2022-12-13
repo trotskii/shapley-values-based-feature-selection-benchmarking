@@ -3,7 +3,7 @@ import numpy as np
 from typing import Union
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.special import comb
-from sklearn.feature_selection import mutual_info_classif, chi2
+from sklearn.feature_selection import mutual_info_classif, chi2, f_classif
 from src.preprocessing.ctfidf import CTFIDFVectorizer
 from sklearn.preprocessing import minmax_scale
 from sklearn.feature_extraction.text import CountVectorizer
@@ -46,7 +46,10 @@ class BaseTextFeatureExtractor:
             vocabulary_filtered - vocabulary of the new filtered dataset (will have length of n_best)
         """
         selected_index = self.feature_strength_metric.argsort()[-n_best:]
-        X_filtered = X[:, selected_index]
+        if isinstance(X, pd.DataFrame):
+            X_filtered = X.iloc[:, selected_index]
+        else:
+            X_filtered = X[:, selected_index]
         vocabulary_filtered = vocabulary[selected_index]
 
         return X_filtered, vocabulary_filtered
@@ -151,7 +154,7 @@ class MutualInformationFeatureExtractor(BaseTextFeatureExtractor):
             y - array-like with class labels for X
         """
         
-        mi = mutual_info_classif(X, y, discrete_features=True)
+        mi = mutual_info_classif(X, y, discrete_features='auto')
         self.feature_strength_metric = mi 
     
     def transform(self, X):
@@ -520,3 +523,28 @@ class LinearMeasureBasedFeatureExtractor(BaseTextFeatureExtractor):
         
         lm = np.maximum.reduce(lm)
         self.feature_strength_metric = np.squeeze(lm) 
+
+
+class FValFeatureExtractor(BaseTextFeatureExtractor):
+    """
+    ANOVA F-value based feature extractor for classification tasks
+    """
+    def __init__(self) -> None:
+        self.feature_strength_metric = None 
+    
+    def fit(self, X, y):
+        """
+        Fit feature extractor
+        Arguments:
+            X - numerical features
+            y - array-like with class labels for X
+        """
+        f_values = f_classif(X, y)[0] # discard p_values
+        self.feature_strength_metric = f_values
+    
+    def transform(self, X):
+        X_t = X.copy()
+        feature_st_matrix = np.tile(self.feature_strength_metric, (X.shape[0], 1))
+        X_t = np.copyto(X_t, feature_st_matrix, where=X_t != 0)
+        return X_t   
+    
