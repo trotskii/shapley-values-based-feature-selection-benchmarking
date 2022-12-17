@@ -20,6 +20,8 @@ import src.preprocessing.feature_extraction.text.wrapping as wrapping
 
 logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
 
+
+
 def record_results(model: sklearn.base.BaseEstimator, X_t: ArrayLike, y_t: ArrayLike, X_val: ArrayLike, y_val: ArrayLike, timing: dict) -> dict:
     """
     Evaluates the passed model both on test and train set and returns a dict with evaluation results.
@@ -191,6 +193,27 @@ def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split:
 
     return results
 
+def get_baseline(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float) -> dict:
+    timing = {}
+    X = df.drop(columns='label')
+    y = df['label']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=split, stratify=y)
+
+    start = timer()
+    model.fit(X_train, y_train)
+    end = timer()    
+    timing['model_training_time'] = str(timedelta(seconds=end-start))
+    logging.info('Model training finished.')
+
+    results = record_results(model=model, 
+                                X_t=X_train,
+                                y_t=y_train,
+                                X_val=X_test,
+                                y_val=y_test,
+                                timing=timing)
+    results['n_words'] = X_train.shape[1]
+    return results
+
 def main():
     df = pd.read_csv('data/mitdb_data/mitdb_ecg.csv', sep=';', index_col=0)
 
@@ -209,12 +232,16 @@ def main():
     method_list['shap'] = partial(shap_based_method, df, model, 0.2)
     method_list['lfs'] = partial(lfs_based_method, df, model, 0.2)
 
-    for n_words in n_words_options:
-        for name, method in method_list.items():
-            print(f'Testing {name} at {n_words} features.')
-            result = method(n_words)
-            with open(f'results/ecg_mit/results_{name}_{n_words}.json', 'w') as file:
-                json.dump(result, file) 
+    # for n_words in n_words_options:
+    #     for name, method in method_list.items():
+    #         print(f'Testing {name} at {n_words} features.')
+    #         result = method(n_words)
+    #         with open(f'results/ecg_mit/results_{name}_{n_words}.json', 'w') as file:
+    #             json.dump(result, file) 
 
+
+    result = get_baseline(df, model, 0.2)
+    with open(f'results/mit_bih_baseline.json', 'w') as file:
+        json.dump(result, file) 
 if __name__ == '__main__':
     main()
