@@ -21,6 +21,34 @@ import src.preprocessing.feature_extraction.text.wrapping as wrapping
 
 logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
 
+def get_baseline(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float) -> dict:
+    timing = {}
+    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+
+    count_vectorizer = CountVectorizer(binary=True)
+    count_vectorizer.fit(X_train)
+
+    X_train_vectorized = count_vectorizer.transform(X_train)
+    X_test_vectorized = count_vectorizer.transform(X_test)
+
+
+
+    start = timer()
+    model.fit(X_train_vectorized, y_train)
+    end = timer()    
+    timing['model_training_time'] = str(timedelta(seconds=end-start))
+    logging.info('Model training finished.')
+
+    results = record_results(model=model, 
+                                X_t=X_train_vectorized,
+                                y_t=y_train,
+                                X_val=X_test_vectorized,
+                                y_val=y_test,
+                                timing=timing)
+    results['n_words'] = X_train_vectorized.shape[1]
+
+    return results
+
 
 def record_results(model: sklearn.base.BaseEstimator, X_t: ArrayLike, y_t: ArrayLike, X_val: ArrayLike, y_val: ArrayLike, timing: dict) -> dict:
     """
@@ -288,6 +316,9 @@ def main():
             with open(f'results/enron/results_{name}_{n_words}.json', 'w') as file:
                 json.dump(result, file) 
 
+    result = get_baseline(df, model, 0.7)
+    with open(f'results/enron_baseline.json', 'w') as file:
+        json.dump(result, file) 
 
 
 

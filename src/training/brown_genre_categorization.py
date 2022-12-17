@@ -141,6 +141,9 @@ def tfidf_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, spli
     end = timer()
     timing['filtered_features'] = str(timedelta(seconds=end-start))
 
+    tfidf = TfidfTransformer()
+    X_train_vectorized_filtered = tfidf.fit_transform(X_train_vectorized_filtered, y_train)
+    X_test_vectorized_filtered = tfidf.transform(X_test_vectorized_filtered)
 
     start = timer()
     model.fit(X_train_vectorized_filtered, y_train)
@@ -189,7 +192,11 @@ def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split
     X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words)
     end = timer()
     timing['filtered_features'] = str(timedelta(seconds=end-start))
-   
+    
+    tfidf = TfidfTransformer()
+    X_train_vectorized_filtered = tfidf.fit_transform(X_train_vectorized_filtered, y_train)
+    X_test_vectorized_filtered = tfidf.transform(X_test_vectorized_filtered)
+
     start = timer()
     model.fit(X_train_vectorized_filtered, y_train)
     end = timer()    
@@ -238,6 +245,10 @@ def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split:
     X_test_vectorized_filtered = X_test_vectorized[:, extractor.selected_idx]
     timing['filtered_features'] = str(timedelta(seconds=end-start))
 
+    tfidf = TfidfTransformer()
+    X_train_vectorized_filtered = tfidf.fit_transform(X_train_vectorized_filtered, y_train)
+    X_test_vectorized_filtered = tfidf.transform(X_test_vectorized_filtered)
+
     start = timer()
     model.fit(X_train_vectorized_filtered, y_train)
     end = timer()    
@@ -252,6 +263,36 @@ def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split:
                                 timing=timing)
     results['n_words'] = n_words
     results['selected_vocabulary'] = extractor.get_selected_words_lfs().tolist()
+
+    return results
+
+def get_baseline(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float) -> dict:
+    timing = {}
+    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+
+    count_vectorizer = CountVectorizer(binary=True)
+    count_vectorizer.fit(X_train)
+
+    X_train_vectorized = count_vectorizer.transform(X_train)
+    X_test_vectorized = count_vectorizer.transform(X_test)
+
+    tfidf = TfidfTransformer()
+    X_train_vectorized = tfidf.fit_transform(X_train_vectorized, y_train)
+    X_test_vectorized = tfidf.transform(X_test_vectorized)
+
+    start = timer()
+    model.fit(X_train_vectorized, y_train)
+    end = timer()    
+    timing['model_training_time'] = str(timedelta(seconds=end-start))
+    logging.info('Model training finished.')
+
+    results = record_results(model=model, 
+                                X_t=X_train_vectorized,
+                                y_t=y_train,
+                                X_val=X_test_vectorized,
+                                y_val=y_test,
+                                timing=timing)
+    results['n_words'] = X_train_vectorized.shape[1]
 
     return results
 
@@ -289,6 +330,10 @@ def main():
             result = method(n_words)
             with open(f'results/brown/results_{name}_{n_words}.json', 'w') as file:
                 json.dump(result, file) 
+    
+    result = get_baseline(df, model, 0.2)
+    with open(f'results/brown_baseline.json', 'w') as file:
+        json.dump(result, file) 
 
 if __name__ == '__main__':
     main()
