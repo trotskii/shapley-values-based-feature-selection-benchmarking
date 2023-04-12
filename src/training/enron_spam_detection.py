@@ -9,7 +9,7 @@ import json
 import sys
 from functools import partial
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer, TfidfTransformer
 from sklearn.svm import SVC
@@ -21,31 +21,45 @@ import src.preprocessing.feature_extraction.text.wrapping as wrapping
 
 logging.basicConfig(stream=sys.stdout, level=logging.ERROR)
 
-def get_baseline(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float) -> dict:
+def get_baseline(df: pd.DataFrame, model: sklearn.base.BaseEstimator) -> dict:
     timing = {}
-    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+    timing['model_training_time'] = []
+    results_list = []
 
-    count_vectorizer = CountVectorizer(binary=True)
-    count_vectorizer.fit(X_train)
+    X = df['Text']
+    y = df['Label']
+    k_fold = StratifiedKFold(n_splits=5)
 
-    X_train_vectorized = count_vectorizer.transform(X_train)
-    X_test_vectorized = count_vectorizer.transform(X_test)
+    for train_idx, test_idx in k_fold.split(X, y):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+
+        count_vectorizer = CountVectorizer(binary=True)
+        count_vectorizer.fit(X_train)
+
+        X_train_vectorized = count_vectorizer.transform(X_train)
+        X_test_vectorized = count_vectorizer.transform(X_test)
 
 
 
-    start = timer()
-    model.fit(X_train_vectorized, y_train)
-    end = timer()    
-    timing['model_training_time'] = str(timedelta(seconds=end-start))
-    logging.info('Model training finished.')
+        start = timer()
+        model.fit(X_train_vectorized, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
 
-    results = record_results(model=model, 
-                                X_t=X_train_vectorized,
-                                y_t=y_train,
-                                X_val=X_test_vectorized,
-                                y_val=y_test,
-                                timing=timing)
-    results['n_words'] = X_train_vectorized.shape[1]
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_vectorized,
+                                    y_t=y_train,
+                                    X_val=X_test_vectorized,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = X_train_vectorized.shape[1]
+        results_list.append(results)
+    
+    results = summarize_results(results_list, timing)
 
     return results
 
@@ -66,126 +80,209 @@ def record_results(model: sklearn.base.BaseEstimator, X_t: ArrayLike, y_t: Array
 
     predictions_train = model.predict(X_t)
 
-    start = timer()
     predictions_test = model.predict(X_val)
-    end = timer()
-    timing['model_inference_time'] = str(timedelta(seconds=end-start))
-    logging.info('Model inference finished.')
 
     report_train = classification_report(y_t, predictions_train, output_dict=True)
     report_test = classification_report(y_val, predictions_test, output_dict=True)
 
-    cm_train = confusion_matrix(y_t, predictions_train, normalize='true')
-    cm_test = confusion_matrix(y_val, predictions_test, normalize='true')
+    # cm_train = confusion_matrix(y_t, predictions_train, normalize='true')
+    # cm_test = confusion_matrix(y_val, predictions_test, normalize='true')
 
     results = {}
-    results['timing'] = timing
     results['training_data_samples'] = X_t.shape[0]
     results['test_data_samples'] = X_val.shape[0]
     results['classification_report_train'] = report_train
     results['classification_report_test'] = report_test
-    results['confustion_matrix_train'] = cm_train.tolist()
-    results['confusion_matrix_test'] = cm_test.tolist()
+    # results['confustion_matrix_train'] = cm_train.tolist()
+    # results['confusion_matrix_test'] = cm_test.tolist()
     results['model_type'] = type(model).__name__
-    results['model_params'] = model.get_params()
 
-    return results
+    return results, timing
 
-def test_extractor(model: sklearn.base.BaseEstimator, extractor: filter.BaseTextFeatureExtractor, df: pd.DataFrame, split: float, n_words: int) -> dict:
+def summarize_results(results_list, timings):
+    results_summarized = {}
+    results_summarized['classification_report_train'] = {}
+    results_summarized['classification_report_test'] = {}
+    metrics_list = {}
+    for result in results_list:
+        for cls, metrics_dict in result['classification_report_train'].items():
+            if cls == 'accuracy':
+                continue
+            for metric, value in metrics_dict.items():
+                if cls not in metrics_list:
+                    metrics_list[cls] = {}
+                if metric not in metrics_list[cls]:
+                    metrics_list[cls][metric] = []
+                metrics_list[cls][metric].append(value)
+
+    for cls, metrics in metrics_list.items():
+        if cls not in results_summarized['classification_report_train']:
+            results_summarized['classification_report_train'][cls] = {}
+        for metric, values in metrics.items():
+            results_summarized['classification_report_train'][cls][f'{metric}_mean'] = np.mean(values)
+            # was np.square(len(values))
+            results_summarized['classification_report_train'][cls][f'{metric}_std'] = np.std(values)/np.sqrt(len(values))
+
+
+    metrics_list = {}
+    for result in results_list:
+        for cls, metrics_dict in result['classification_report_test'].items():
+            if cls == 'accuracy':
+                continue
+            for metric, value in metrics_dict.items():
+                if cls not in metrics_list:
+                    metrics_list[cls] = {}
+                if metric not in metrics_list[cls]:
+                    metrics_list[cls][metric] = []
+                metrics_list[cls][metric].append(value)
+
+    for cls, metrics in metrics_list.items():
+        if cls not in results_summarized['classification_report_test']:
+            results_summarized['classification_report_test'][cls] = {}
+        for metric, values in metrics.items():
+            results_summarized['classification_report_test'][cls][f'{metric}_mean'] = np.mean(values)
+            # was missing
+            results_summarized['classification_report_test'][cls][f'{metric}_std'] = np.std(values)/np.sqrt(len(values))
+
+    timings_summarized = {}
+    for key, value in timings.items():
+        timings_summarized[key] = str(np.mean(value))
+    
+    results_summarized['timing'] = timings_summarized
+
+    if 'selected_vocabulary' in results_list[0]:
+        results_summarized['selected_vocabulary'] = [result['selected_vocabulary'] for result in results_list]
+
+    return results_summarized
+
+
+def test_extractor(model: sklearn.base.BaseEstimator, extractor: filter.BaseTextFeatureExtractor, df: pd.DataFrame, n_words: int) -> dict:
     """
     Train passed model on a features selected by passed extractor.
     """
     timing = {}
-    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
 
-    count_vectorizer = CountVectorizer(binary=True)
-    count_vectorizer.fit(X_train)
+    X = df['Text']
+    y = df['Label']
+    k_fold = StratifiedKFold(n_splits=5)
 
-    X_train_vectorized = count_vectorizer.transform(X_train)
-    X_test_vectorized = count_vectorizer.transform(X_test)
+    for train_idx, test_idx in k_fold.split(X, y):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
 
-    start = timer()
-    extractor.fit(X_train_vectorized, y_train)
-    end = timer()
-    timing['extractor_fit'] = str(timedelta(seconds=end-start))
-    logging.info('Fit extractor.')
+        count_vectorizer = CountVectorizer(binary=True)
+        count_vectorizer.fit(X_train)
+
+        X_train_vectorized = count_vectorizer.transform(X_train)
+        X_test_vectorized = count_vectorizer.transform(X_test)
+
+        start = timer()
+        extractor.fit(X_train_vectorized, y_train)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        
+        start = timer()
+        vocabulary = count_vectorizer.get_feature_names_out()
+        X_train_vectorized_filtered, vocabulary_filtered = extractor.filter_n_best(X_train_vectorized, n_words, vocabulary)
+        X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words, vocabulary)
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
+
+
+        start = timer()
+        model.fit(X_train_vectorized_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
+
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_vectorized_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_vectorized_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = n_words
+        results['selected_vocabulary'] = vocabulary_filtered.tolist()
+        results_list.append(results)
     
-    start = timer()
-    vocabulary = count_vectorizer.get_feature_names_out()
-    X_train_vectorized_filtered, vocabulary_filtered = extractor.filter_n_best(X_train_vectorized, n_words, vocabulary)
-    X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words, vocabulary)
-    end = timer()
-    timing['filtered_features'] = str(timedelta(seconds=end-start))
-
-
-    start = timer()
-    model.fit(X_train_vectorized_filtered, y_train)
-    end = timer()    
-    timing['model_training_time'] = str(timedelta(seconds=end-start))
-    logging.info('Model training finished.')
-
-    results = record_results(model=model, 
-                                X_t=X_train_vectorized_filtered,
-                                y_t=y_train,
-                                X_val=X_test_vectorized_filtered,
-                                y_val=y_test,
-                                timing=timing)
-    results['n_words'] = n_words
-    results['selected_vocabulary'] = vocabulary_filtered.tolist()
+    results = summarize_results(results_list, timing)
 
     return results
   
 
 
-def tfidf_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float, n_words: int) -> dict:
+def tfidf_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_words: int) -> dict:
     """
     Train passed model on a features selected by passed extractor.
     """
     timing = {}
-    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
 
-    count_vectorizer = CountVectorizer(binary=True)
-    count_vectorizer.fit(X_train)
+    X = df['Text']
+    y = df['Label']
+    k_fold = StratifiedKFold(n_splits=5)
 
-    X_train_vectorized = count_vectorizer.transform(X_train)
-    X_test_vectorized = count_vectorizer.transform(X_test)
+    for train_idx, test_idx in k_fold.split(X, y):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
 
-    extractor = filter.CTFIDFFeatureExtractor()
-    df_extractor_train = pd.DataFrame(X_train, columns=['Text'])
-    df_extractor_train['Label'] = y_train
-    start = timer()
-    extractor.fit(df_extractor_train)
-    end = timer()
-    timing['extractor_fit'] = str(timedelta(seconds=end-start))
-    logging.info('Fit extractor.')
-    
-    start = timer()
-    vocabulary = count_vectorizer.get_feature_names_out()
-    X_train_vectorized_filtered, vocabulary_filtered = extractor.filter_n_best(X_train_vectorized, n_words, vocabulary)
-    X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words, vocabulary)
-    end = timer()
-    timing['filtered_features'] = str(timedelta(seconds=end-start))
+        count_vectorizer = CountVectorizer(binary=True)
+        count_vectorizer.fit(X_train)
+
+        X_train_vectorized = count_vectorizer.transform(X_train)
+        X_test_vectorized = count_vectorizer.transform(X_test)
+
+        extractor = filter.CTFIDFFeatureExtractor()
+        df_extractor_train = pd.DataFrame(X_train, columns=['Text'])
+        df_extractor_train['Label'] = y_train
+        start = timer()
+        extractor.fit(df_extractor_train)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        
+        start = timer()
+        vocabulary = count_vectorizer.get_feature_names_out()
+        X_train_vectorized_filtered, vocabulary_filtered = extractor.filter_n_best(X_train_vectorized, n_words, vocabulary)
+        X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words, vocabulary)
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
 
 
-    start = timer()
-    model.fit(X_train_vectorized_filtered, y_train)
-    end = timer()    
-    timing['model_training_time'] = str(timedelta(seconds=end-start))
-    logging.info('Model training finished.')
+        start = timer()
+        model.fit(X_train_vectorized_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
 
-    results = record_results(model=model, 
-                                X_t=X_train_vectorized_filtered,
-                                y_t=y_train,
-                                X_val=X_test_vectorized_filtered,
-                                y_val=y_test,
-                                timing=timing)
-    results['n_words'] = n_words
-    results['selected_vocabulary'] = vocabulary_filtered.tolist()
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_vectorized_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_vectorized_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = n_words
+        results['selected_vocabulary'] = vocabulary_filtered.tolist()
+        results_list.append(results)
+
+    results = summarize_results(results_list, timing)
 
     return results
 
 
-def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float, n_words: int) -> dict:
+def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_words: int) -> dict:
     """
     Train model with mutual information based features selection.
     """
@@ -193,47 +290,62 @@ def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split
     Train passed model on a features selected by passed extractor.
     """
     timing = {}
-    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
 
-    count_vectorizer = CountVectorizer(binary=True)
-    count_vectorizer.fit(X_train)
+    X = df['Text']
+    y = df['Label']
+    k_fold = StratifiedKFold(n_splits=5)
 
-    X_train_vectorized = count_vectorizer.transform(X_train)
-    X_test_vectorized = count_vectorizer.transform(X_test)
+    for train_idx, test_idx in k_fold.split(X, y):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+
+        count_vectorizer = CountVectorizer(binary=True)
+        count_vectorizer.fit(X_train)
+
+        X_train_vectorized = count_vectorizer.transform(X_train)
+        X_test_vectorized = count_vectorizer.transform(X_test)
+        
+        vocabulary = count_vectorizer.get_feature_names_out()
+        extractor = wrapping.ShapFeatureExtractor(vocabulary=vocabulary)
+
+        start = timer()
+        extractor.fit(X_train_vectorized, y_train)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        
+        start = timer()
+        X_train_vectorized_filtered, vocabulary_filtered = extractor.filter_n_best(X_train_vectorized, n_words)
+        X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words)
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
     
-    vocabulary = count_vectorizer.get_feature_names_out()
-    extractor = wrapping.ShapFeatureExtractor(vocabulary=vocabulary)
+        start = timer()
+        model.fit(X_train_vectorized_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
 
-    start = timer()
-    extractor.fit(X_train_vectorized, y_train)
-    end = timer()
-    timing['extractor_fit'] = str(timedelta(seconds=end-start))
-    logging.info('Fit extractor.')
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_vectorized_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_vectorized_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = n_words
+        results['selected_vocabulary'] = vocabulary_filtered.tolist()
+        results_list.append(results)
     
-    start = timer()
-    X_train_vectorized_filtered, vocabulary_filtered = extractor.filter_n_best(X_train_vectorized, n_words)
-    X_test_vectorized_filtered, _ = extractor.filter_n_best(X_test_vectorized, n_words)
-    end = timer()
-    timing['filtered_features'] = str(timedelta(seconds=end-start))
-   
-    start = timer()
-    model.fit(X_train_vectorized_filtered, y_train)
-    end = timer()    
-    timing['model_training_time'] = str(timedelta(seconds=end-start))
-    logging.info('Model training finished.')
-
-    results = record_results(model=model, 
-                                X_t=X_train_vectorized_filtered,
-                                y_t=y_train,
-                                X_val=X_test_vectorized_filtered,
-                                y_val=y_test,
-                                timing=timing)
-    results['n_words'] = n_words
-    results['selected_vocabulary'] = vocabulary_filtered.tolist()
-
+    results = summarize_results(results_list, timing)
     return results
 
-def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split: float, n_words: int) -> dict:
+def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_words: int) -> dict:
     """
     Train model with mutual information based features selection.
     """
@@ -241,43 +353,59 @@ def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, split:
     Train passed model on a features selected by passed extractor.
     """
     timing = {}
-    X_train, X_test, y_train, y_test = train_test_split(df['Text'], df['Label'], test_size=split)
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
 
-    count_vectorizer = CountVectorizer(binary=True)
-    count_vectorizer.fit(X_train)
+    X = df['Text']
+    y = df['Label']
+    k_fold = StratifiedKFold(n_splits=5)
 
-    X_train_vectorized = count_vectorizer.transform(X_train)
-    X_test_vectorized = count_vectorizer.transform(X_test)
-    
-    vocabulary = count_vectorizer.get_feature_names_out()
-    ranker = filter.Chi2FeatureExtractor()
-    extractor = wrapping.LinearForwardSearch(model, ranker, vocabulary)
+    for train_idx, test_idx in k_fold.split(X, y):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
 
-    start = timer()
-    extractor.fit(X_train_vectorized, y_train, k=50, n_words=n_words)
-    end = timer()
-    timing['extractor_fit'] = str(timedelta(seconds=end-start))
-    logging.info('Fit extractor.')
-    
-    start = timer()
-    X_train_vectorized_filtered = X_train_vectorized[:, extractor.selected_idx]
-    X_test_vectorized_filtered = X_test_vectorized[:, extractor.selected_idx]
-    timing['filtered_features'] = str(timedelta(seconds=end-start))
+        count_vectorizer = CountVectorizer(binary=True)
+        count_vectorizer.fit(X_train)
 
-    start = timer()
-    model.fit(X_train_vectorized_filtered, y_train)
-    end = timer()    
-    timing['model_training_time'] = str(timedelta(seconds=end-start))
-    logging.info('Model training finished.')
+        X_train_vectorized = count_vectorizer.transform(X_train)
+        X_test_vectorized = count_vectorizer.transform(X_test)
+        
+        vocabulary = count_vectorizer.get_feature_names_out()
+        ranker = filter.Chi2FeatureExtractor()
+        extractor = wrapping.LinearForwardSearch(model, ranker, vocabulary)
 
-    results = record_results(model=model, 
-                                X_t=X_train_vectorized_filtered,
-                                y_t=y_train,
-                                X_val=X_test_vectorized_filtered,
-                                y_val=y_test,
-                                timing=timing)
-    results['n_words'] = n_words
-    results['selected_vocabulary'] = extractor.get_selected_words_lfs().tolist()
+        start = timer()
+        extractor.fit(X_train_vectorized, y_train, k=50, n_words=n_words)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        
+        start = timer()
+        X_train_vectorized_filtered = X_train_vectorized[:, extractor.selected_idx]
+        X_test_vectorized_filtered = X_test_vectorized[:, extractor.selected_idx]
+        timing['filtered_features'].append(timedelta(seconds=end-start))
+
+        start = timer()
+        model.fit(X_train_vectorized_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
+
+        results = record_results(model=model, 
+                                    X_t=X_train_vectorized_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_vectorized_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = n_words
+        results['selected_vocabulary'] = extractor.get_selected_words_lfs().tolist()
+        results_list.append(results)
+
+    results = summarize_results(results_list, timing)
 
     return results
 
@@ -292,7 +420,7 @@ def main():
 
     model = SVC()
 
-    n_words_options = [10, 50, 100, 200, 500, 1000, 3000, 5000, 10000, 15000, 25000]
+    n_words_options = [50, 100, 200, 500, 1000, 3000, 5000, 10000, 15000, 25000]
     filter_extractors = {}
     filter_extractors['term_strength'] = filter.TermStrengthFeatureExtractor()
     filter_extractors['mutual_information'] = filter.MutualInformationFeatureExtractor()
@@ -303,11 +431,11 @@ def main():
 
     method_list = {}
     for name, extractor in filter_extractors.items():
-        method_list[name] = partial(test_extractor, model, extractor, df, 0.7)
+        method_list[name] = partial(test_extractor, model, extractor, df)
 
-    method_list['shap'] = partial(shap_based_method, df, model, 0.7)
-    method_list['tfidf'] = partial(tfidf_based_method, df, model, 0.7)
-    # method_list['lfs'] = partial(lfs_based_method, df, model, 0.7)
+    method_list['shap'] = partial(shap_based_method, df, model)
+    method_list['tfidf'] = partial(tfidf_based_method, df, model)
+    # method_list['lfs'] = partial(lfs_based_method, df, model)
 
     for n_words in n_words_options:
         for name, method in method_list.items():
@@ -316,7 +444,7 @@ def main():
             with open(f'results/enron/results_{name}_{n_words}.json', 'w') as file:
                 json.dump(result, file) 
 
-    result = get_baseline(df, model, 0.7)
+    result = get_baseline(df, model)
     with open(f'results/enron_baseline.json', 'w') as file:
         json.dump(result, file) 
 

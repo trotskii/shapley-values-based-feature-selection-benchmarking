@@ -17,9 +17,9 @@ def main():
             flat_list = [item for sublist in i for item in sublist]
             docs.append({'Label': label, 'Text': ' '.join(flat_list)})
     df = pd.DataFrame(docs)
+    print(df.groupby('Label').count().rename(columns={'Text': 'n_documents'}).to_latex(caption='Genre label statistics'))
+
     df.to_csv('brown_corpus.csv', sep=';')
     
-
-
 if __name__ == '__main__':
     main()

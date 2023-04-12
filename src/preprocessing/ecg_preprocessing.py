@@ -20,15 +20,18 @@ def select_annotation(labels: np.ndarray, samples: np.ndarray, index: int, prev_
     """
 
     included_annotations = labels[np.where((samples<index) & (samples>=prev_index))]
+    l = included_annotations.size/2
+    # return 0.0 if np.count_nonzero(included_annotations=='N') > l else 1.0 # no arrhythmia if more than half of heartbeats normal
     return 0.0 if np.all(included_annotations=='N') else 1.0 # return 0 (no arrhythmia) if all labels are N (normal), otherwise return 1
 
-def format_timeseries(record: wfdb.Record, annotation: wfdb.Annotation, window_length: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[float, float, np.ndarray]]:
+def format_timeseries(record: wfdb.Record, annotation: wfdb.Annotation, window_length: int, file_idx: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Tuple[float, float, np.ndarray]]:
     """
     Split continious ECG signal into windows.
     Arguments:
         record - records object with the ECG signals
         annotation - annotations object
         window_length - length of the desired window in seconds
+        file_idx - id of the record, used to make sure that signals from the same record do not end up being both in train and test sets
     Returns:
         high_arr - 2d array of the splitted high channel from ECG record
         low_arr - 2d array of the splitted low channel from ECG record
@@ -46,7 +49,8 @@ def format_timeseries(record: wfdb.Record, annotation: wfdb.Annotation, window_l
     signal = record.p_signal
     high, low = signal[:, 0], signal[:,1] # we have 2 channels in this dataset
 
-    matrix_profile = stumpy.stump(high.astype(float), int(fs))[:, 0]
+    # matrix_profile = stumpy.stump(high.astype(float), int(fs))[:, 0]
+    matrix_profile = np.zeros(high.shape)
     N = matrix_profile.shape[0]%window_length_samples
     high = high[:matrix_profile.shape[0]]
     low = low[:matrix_profile.shape[0]]
@@ -73,11 +77,11 @@ def format_timeseries(record: wfdb.Record, annotation: wfdb.Annotation, window_l
         prev_index = split_idx
 
     
-
+    file_idx_arr = np.broadcast_to(file_idx, labels_arr.shape)
     assert(high_arr.shape[0] == labels_arr.shape[0])
 
     
-    return high_arr, low_arr, mp_arr, labels_arr, (age, gender, np.array(medication))
+    return high_arr, low_arr, mp_arr, labels_arr, file_idx_arr, (age, gender, np.array(medication))
 
 def parse_all_records(path: os.PathLike, window_length: int) -> Tuple[np.ndarray, dict]:
     """
@@ -103,10 +107,10 @@ def parse_all_records(path: os.PathLike, window_length: int) -> Tuple[np.ndarray
         file_path = os.path.join(path, file)
         record = wfdb.rdrecord(file_path)
         annotations = wfdb.rdann(file_path, 'atr')
-        high_arr, _, mp_arr, labels_arr, background = format_timeseries(record, annotations, window_length=window_length)
+        high_arr, _, mp_arr, labels_arr, file_idx_arr, background = format_timeseries(record, annotations, window_length=window_length, file_idx=idx)
         background = np.broadcast_to(background, (high_arr.shape[0], 3)) # 3 elements in background - age, gender, medication
 
-        dataset_list.append(np.column_stack((high_arr, mp_arr, background, labels_arr))) 
+        dataset_list.append(np.column_stack((high_arr, mp_arr, background, labels_arr, file_idx_arr))) 
 
     channel_width = high_arr.shape[1]
     dataset_list = np.vstack(dataset_list)
@@ -117,7 +121,8 @@ def parse_all_records(path: os.PathLike, window_length: int) -> Tuple[np.ndarray
         'age': channel_width*2,
         'gender': channel_width*2+1,
         'medication': channel_width*2+2,
-        'label': channel_width*2+3
+        'label': channel_width*2+3,
+        'file_idx': channel_width*2+4
     }
 
     return dataset_list, description  
@@ -160,5 +165,6 @@ def build_dataset(raw_dataset, description, fs):
     df['age'] = raw_dataset[:, description['age']]
     df['gender'] = raw_dataset[:, description['gender']]
     df['label'] = raw_dataset[:, description['label']]
+    df['file_idx'] = raw_dataset[:, description['file_idx']]
 
     return df.astype(float)
