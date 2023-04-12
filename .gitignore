@@ -6,3 +6,6 @@ spampy/
 .vscode/
 **/*.ti
 *.json
+*.csv
+figures/
+results/

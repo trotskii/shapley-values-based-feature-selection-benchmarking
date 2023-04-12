@@ -41,14 +41,14 @@ class ShapFeatureExtractor:
         test_dmatrix = xgb.DMatrix(X_test, label=y_test)
 
         if len(classes) > 2:
-            param = {'max_depth':5, 'eta':0.1, 'lambda': 0.01, 'objective':'multi:softprob', 'num_class': len(classes) }
+            param = {'max_depth':25, 'eta':0.05, 'lambda': 0.001, 'objective':'multi:softprob', 'num_class': len(classes) }
         else:
-            param = {'max_depth':5, 'eta':0.1, 'lambda': 0.01, 'objective':'binary:logistic' }
+            param = {'max_depth':25, 'eta':0.05, 'lambda': 0.001, 'objective':'binary:logistic' }
             
         model = xgb.train(param, dtrain=train_dmatrix, evals=[(train_dmatrix, 'train'), (test_dmatrix, 'test')], num_boost_round=1000, early_stopping_rounds=100, verbose_eval=False)
 
         explainer = shap.TreeExplainer(model, feature_names=self.vocabulary)
-        shap_values = explainer.shap_values(test_dmatrix)
+        shap_values = explainer.shap_values(test_dmatrix, check_additivity=False)
 
         self.shap_values = shap_values
 
@@ -88,6 +88,29 @@ class ShapFeatureExtractor:
         else:
             X_filtered = X[:, selected_index]
         vocabulary_filtered = self.vocabulary[selected_index]
+
+        return X_filtered, vocabulary_filtered
+
+    def remove_n_best(self, X, n_words):
+        """
+        Remove n_best features.
+            Arguments:
+            X - dataset to filter out terms from
+            n_words - [int] number of terms to remove
+            vocabulary - [list] list of words present in the dataset
+        Returns:
+            X_filtered - filtered dataset
+            vocabulary_filtered - dropped words
+        """
+        # selected_index = self.feature_strength_metric.argsort()[:-n_words]
+        selected_index = self.feature_strength_metric.argsort()[n_words:]
+        dropped_index = self.feature_strength_metric.argsort()[-n_words:]
+
+        if isinstance(X, pd.DataFrame):
+            X_filtered = X.iloc[:, selected_index]
+        else:
+            X_filtered = X[:, selected_index]
+        vocabulary_filtered = self.vocabulary[dropped_index]
 
         return X_filtered, vocabulary_filtered
 

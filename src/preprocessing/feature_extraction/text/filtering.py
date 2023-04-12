@@ -53,6 +53,30 @@ class BaseTextFeatureExtractor:
         vocabulary_filtered = vocabulary[selected_index]
 
         return X_filtered, vocabulary_filtered
+    
+    def remove_n_best(self, X, n_words, vocabulary):
+        """
+        Remove n_best features.
+            Arguments:
+            X - dataset to filter out terms from
+            n_words - [int] number of terms to remove
+            vocabulary - [list] list of words present in the dataset
+        Returns:
+            X_filtered - filtered dataset
+            vocabulary_filtered - removed words
+        """
+        # selected_index = self.feature_strength_metric.argsort()[:-n_words]
+        selected_index = self.feature_strength_metric.argsort()[n_words:]
+
+        dropped_index = self.feature_strength_metric.argsort()[-n_words:]
+
+        if isinstance(X, pd.DataFrame):
+            X_filtered = X.iloc[:, selected_index]
+        else:
+            X_filtered = X[:, selected_index]
+        vocabulary_filtered = vocabulary[dropped_index]
+
+        return X_filtered, vocabulary_filtered
 
 class CTFIDFFeatureExtractor(BaseTextFeatureExtractor):
     """
