@@ -6,7 +6,7 @@ import sklearn.feature_extraction.text as ft
 import src.preprocessing.text_preprocessing as tp
 from src.results_processing.results_processing_functions import *
 
-FOLDER = 'enron copy'
+FOLDER = 'enron'
 base_path = 'results/'
 
 
@@ -38,8 +38,8 @@ def main():
     vocabulary = count_vectorizer.get_feature_names_out()
 
     df, method_list, n_words_list = get_extractor_timings(files)
-    ensure_dir_path('csv_results_outputs/timings')
-    df.to_csv('csv_results_outputs/timings/enron_n_word_timings_new.csv', sep=';')
+    ensure_dir_path('csv_results_outputs/timings/enron')
+    df.to_csv('csv_results_outputs/timings/enron/enron_n_word_timings_new.csv', sep=';')
 
     df_dict = get_selected_words_per_extractor_per_n_words(files, vocabulary, n_words_list, method_list)
     _, jaccard_score_dict = get_similarity_metrics(df_dict)

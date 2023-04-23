@@ -32,8 +32,8 @@ def main():
 
     vocabulary = df.columns[:-1]
     df, method_list, n_words_list = get_extractor_timings(files)
-    ensure_dir_path('csv_results_outputs/timings')
-    df.to_csv('csv_results_outputs/timings/ionosphere_n_word_timings_new.csv', sep=';')
+    ensure_dir_path('csv_results_outputs/timings/ionosphere')
+    df.to_csv('csv_results_outputs/timings/ionosphere/ionosphere_n_word_timings.csv', sep=';')
 
 
 

@@ -35,8 +35,8 @@ def main():
     vocabulary = count_vectorizer.get_feature_names_out()
 
     df, method_list, n_words_list = get_extractor_timings(files)
-    ensure_dir_path('csv_results_outputs/timings')
-    df.to_csv('csv_results_outputs/timings/brown_n_word_timings_new.csv', sep=';')
+    ensure_dir_path('csv_results_outputs/timings/brown')
+    df.to_csv('csv_results_outputs/timings/brown/brown_n_word_timings.csv', sep=';')
 
     df_dict = get_selected_words_per_extractor_per_n_words(files, vocabulary, n_words_list, method_list)
     _, jaccard_score_dict = get_similarity_metrics(df_dict)
