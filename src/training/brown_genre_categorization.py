@@ -436,8 +436,7 @@ def main():
 
     model = OneVsRestClassifier(SVC(class_weight='balanced', kernel='rbf', C=0.1))
 
-    # n_words_options = [50, 100, 200, 500, 1000, 3000, 5000, 10000, 15000, 25000]
-    n_words_options = [25000]
+    n_words_options = [50, 100, 200, 500, 1000, 3000, 5000, 10000, 15000, 25000]
     print(f'Brown n_words: {n_words_options[0]}')
     filter_extractors = {}
     filter_extractors['term_strength'] = filter.TermStrengthFeatureExtractor()
@@ -454,15 +453,15 @@ def main():
     method_list['shap'] = partial(shap_based_method, df, model)
     method_list['tfidf'] = partial(tfidf_based_method, df, model)
 
-    # for n_words in n_words_options:
-    #     for name, method in method_list.items():
-    #         print(f'Testing {name} at {n_words} words.')
-    #         result = method(n_words)
-    #         with open(f'results/brown/results_{name}_{n_words}.json', 'w') as file:
-    #             json.dump(result, file) 
+    for n_words in n_words_options:
+        for name, method in method_list.items():
+            print(f'Testing {name} at {n_words} words.')
+            result = method(n_words)
+            with open(f'results/brown/results_{name}_{n_words}.json', 'w') as file:
+                json.dump(result, file) 
     
     result = get_baseline(df, model)
-    with open(f'results/brown_baseline_reg.json', 'w') as file:
+    with open(f'results/brown_baseline.json', 'w') as file:
         json.dump(result, file) 
 
 if __name__ == '__main__':

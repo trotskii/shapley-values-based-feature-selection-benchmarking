@@ -357,7 +357,7 @@ def main():
 
 
     result = get_baseline(df, model)
-    with open(f'results/mit_bih_baseline_svm.json', 'w') as file:
+    with open(f'results/mit_bih_baseline.json', 'w') as file:
         json.dump(result, file) 
 if __name__ == '__main__':
     main()
