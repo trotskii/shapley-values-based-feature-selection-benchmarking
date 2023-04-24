@@ -346,12 +346,12 @@ def main():
         for name, method in method_list.items():
             print(f'Testing {name} at {n_words} features.')
             result = method(n_words)
-            with open(f'results/ecg_mit_half/results_{name}_{n_words}.json', 'w') as file:
+            with open(f'results/ecg_mit/results_{name}_{n_words}.json', 'w') as file:
                 json.dump(result, file) 
 
 
     result = get_baseline(df, model)
-    with open(f'results/mit_bih_baseline_half.json', 'w') as file:
+    with open(f'results/mit_bih_baseline.json', 'w') as file:
         json.dump(result, file) 
 if __name__ == '__main__':
     main()

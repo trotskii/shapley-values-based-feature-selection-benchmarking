@@ -1,0 +1,169 @@
+{
+    "classification_report_train": {
+        "accuracy": {
+            "mean": 0.965091509913574,
+            "std": 0.003290503475112757
+        },
+        "0": {
+            "precision_mean": 0.9809977759625074,
+            "precision_std": 0.0034581022760184735,
+            "recall_mean": 0.9205742574257426,
+            "recall_std": 0.007048414644797764,
+            "f1-score_mean": 0.9497558122090657,
+            "f1-score_std": 0.004453958305129086,
+            "support_mean": 100.8,
+            "support_std": 0.17888543819998318
+        },
+        "1": {
+            "precision_mean": 0.9570951787291199,
+            "precision_std": 0.003539340282864619,
+            "recall_mean": 0.99,
+            "recall_std": 0.0018592445034090659,
+            "f1-score_mean": 0.9732517737715659,
+            "f1-score_std": 0.002196641774990903,
+            "support_mean": 180.0,
+            "support_std": 0.0
+        },
+        "macro avg": {
+            "precision_mean": 0.9690464773458135,
+            "precision_std": 0.0027682911984594108,
+            "recall_mean": 0.9552871287128714,
+            "recall_std": 0.00379585921938065,
+            "f1-score_mean": 0.9615037929903159,
+            "f1-score_std": 0.0033234681143707637,
+            "support_mean": 280.8,
+            "support_std": 0.17888543819998318
+        },
+        "weighted avg": {
+            "precision_mean": 0.9656699298787915,
+            "precision_std": 0.0028596421776162124,
+            "recall_mean": 0.965091509913574,
+            "recall_std": 0.002943115780220565,
+            "f1-score_mean": 0.9648216285772303,
+            "f1-score_std": 0.0029943004801838,
+            "support_mean": 280.8,
+            "support_std": 0.17888543819998318
+        }
+    },
+    "classification_report_test": {
+        "accuracy": {
+            "mean": 0.9231388329979879,
+            "std": 0.02233608850641957
+        },
+        "0": {
+            "precision_mean": 0.9378364389233953,
+            "precision_std": 0.026226294871101476,
+            "recall_mean": 0.8418461538461539,
+            "recall_std": 0.036764788917414054,
+            "f1-score_mean": 0.8861326121567961,
+            "f1-score_std": 0.029620272987980565,
+            "support_mean": 25.2,
+            "support_std": 0.17888543819998315
+        },
+        "1": {
+            "precision_mean": 0.9170164435802073,
+            "precision_std": 0.019016719937860138,
+            "recall_mean": 0.9688888888888888,
+            "recall_std": 0.013480667456091645,
+            "f1-score_mean": 0.941966861221937,
+            "f1-score_std": 0.01508205166910425,
+            "support_mean": 45.0,
+            "support_std": 0.0
+        },
+        "macro avg": {
+            "precision_mean": 0.9274264412518013,
+            "precision_std": 0.02093420258466611,
+            "recall_mean": 0.9053675213675213,
+            "recall_std": 0.023344925582275054,
+            "f1-score_mean": 0.9140497366893665,
+            "f1-score_std": 0.02234162145336963,
+            "support_mean": 70.2,
+            "support_std": 0.17888543819998318
+        },
+        "weighted avg": {
+            "precision_mean": 0.9245832283499432,
+            "precision_std": 0.01994346645090979,
+            "recall_mean": 0.9231388329979879,
+            "recall_std": 0.019978004900722362,
+            "f1-score_mean": 0.9218897868300248,
+            "f1-score_std": 0.02029533324590465,
+            "support_mean": 70.2,
+            "support_std": 0.17888543819998318
+        }
+    },
+    "timing": {
+        "extractor_fit": "0:00:08.831866",
+        "filtered_features": "0:00:00.000404",
+        "model_training_time": "0:00:00.002778"
+    },
+    "n_words": [
+        9,
+        9,
+        11,
+        12,
+        10
+    ],
+    "selected_vocabulary": [
+        [
+            "var_4",
+            "var_23",
+            "var_2",
+            "var_26",
+            "var_16",
+            "var_3",
+            "var_0",
+            "var_13",
+            "var_5"
+        ],
+        [
+            "var_4",
+            "var_2",
+            "var_26",
+            "var_9",
+            "var_6",
+            "var_7",
+            "var_3",
+            "var_27",
+            "var_15"
+        ],
+        [
+            "var_4",
+            "var_26",
+            "var_5",
+            "var_7",
+            "var_2",
+            "var_23",
+            "var_21",
+            "var_6",
+            "var_28",
+            "var_15",
+            "var_0"
+        ],
+        [
+            "var_4",
+            "var_26",
+            "var_23",
+            "var_2",
+            "var_3",
+            "var_15",
+            "var_7",
+            "var_9",
+            "var_13",
+            "var_33",
+            "var_28",
+            "var_5"
+        ],
+        [
+            "var_4",
+            "var_15",
+            "var_7",
+            "var_26",
+            "var_3",
+            "var_13",
+            "var_9",
+            "var_2",
+            "var_16",
+            "var_5"
+        ]
+    ]
+}
