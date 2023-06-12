@@ -45,7 +45,7 @@ def main():
 
     for TEST_TRAIN in ['test', 'train']:
         ensure_dir_path('csv_results_outputs/metrics/ionosphere/')
-        df_metrics = compare_performance_over_n_words(files, n_words_list, method_list, TEST_TRAIN, baseline=baseline_arcene[f'classification_report_{TEST_TRAIN}'], ppfs=ppfs_arcene[f'classification_report_{TEST_TRAIN}'])
+        df_metrics = compare_performance_over_n_words(files, n_words_list, method_list, TEST_TRAIN, baseline=baseline_arcene[f'classification_report_{TEST_TRAIN}'], ppfs=ppfs_arcene[f'classification_report_{TEST_TRAIN}'], ppfs_n_words=np.mean(ppfs_arcene['n_words']))
         df_metrics.to_csv(f'csv_results_outputs/metrics/ionosphere/ionosphere_performance_{TEST_TRAIN}.csv', sep=';')
 
 

@@ -1,4 +1,5 @@
 import pandas as pd 
+import numpy as np 
 import os 
 from sklearn.metrics import jaccard_score
 
@@ -97,7 +98,7 @@ def compare_methods_set_similarity(df_dict: dict, n_words_list, method_list):
 #     df_metrics = df_metrics.sort_index()
 #     return df_metrics
 
-def compare_performance_over_n_words(files, n_words_list, method_list, train_test, baseline=None, ppfs=None):
+def compare_performance_over_n_words(files, n_words_list, method_list, train_test, baseline=None, ppfs=None, ppfs_n_words=None):
     metrics = ['precision', 'recall', 'f1-score']
     cols = []
     for method in method_list:
@@ -118,10 +119,14 @@ def compare_performance_over_n_words(files, n_words_list, method_list, train_tes
                 df_metrics.loc[n_words, ('baseline',f'{metric}_std')] = baseline['macro avg'][f'{metric}_std']
     
     if ppfs is not None:
-        for n_words in n_words_list:
-            for metric in metrics:
-                df_metrics.loc[n_words, ('ppfs',f'{metric}_mean')] = ppfs['macro avg'][f'{metric}_mean']
-                df_metrics.loc[n_words, ('ppfs',f'{metric}_std')] = ppfs['macro avg'][f'{metric}_std']
+        # for n_words in n_words_list:
+        #     for metric in metrics:
+        #         df_metrics.loc[n_words, ('ppfs',f'{metric}_mean')] = ppfs['macro avg'][f'{metric}_mean']
+        #         df_metrics.loc[n_words, ('ppfs',f'{metric}_std')] = ppfs['macro avg'][f'{metric}_std']
+        n_words = ppfs_n_words
+        for metric in metrics:
+            df_metrics.loc[n_words, ('ppfs',f'{metric}_mean')] = ppfs['macro avg'][f'{metric}_mean']
+            df_metrics.loc[n_words, ('ppfs',f'{metric}_std')] = ppfs['macro avg'][f'{metric}_std']
 
     df_metrics.index = df_metrics.index.astype('int')
     df_metrics = df_metrics.sort_index()

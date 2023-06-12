@@ -1,4 +1,4 @@
-from plotnine import ggplot, geom_line, geom_errorbar, aes, stat_smooth, facet_wrap, labs, lims, scale_x_log10, scale_y_continuous, scale_y_log10
+from plotnine import ggplot, geom_line, geom_errorbar, aes, geom_segment, scale_x_log10, scale_y_continuous, scale_y_log10
 from plotnine.ggplot import save_as_pdf_pages
 import pandas as pd 
 import numpy as np 
@@ -52,11 +52,20 @@ for dataset_name, dataset_dict in df_dict.items():
                 'lfs': 'LFS',
                 'baseline': 'Baseline',
                 'ppfs': 'PPFS',
-                'f_val': 'F-stat'
+                'f_val': 'F-stat',
+                'mRMR' : 'mRMR'
             }
             df_filtered['method_name'] = df_filtered['method_name'].map(methods_renames)
             df_filtered = df_filtered.rename(columns={'method_name': 'Method'})
-            p = (ggplot(df_filtered, aes(x='n_features', y='mean', group='Method', color='Method')) + geom_line(alpha=alpha, size=2) + geom_errorbar(aes(x='n_features', ymin='mean-std', ymax='mean+std', group='Method'), linetype='solid', alpha=alpha, width=0.05, size=2) + scale_x_log10(name=x_label) + scale_y_continuous(name=metric.capitalize()))  
+            if 'PPFS' in df_filtered['Method'].unique():
+                df_ppfs = df_filtered.loc[df_filtered['Method']=='PPFS']
+                df_filtered = df_filtered.loc[df_filtered['Method']!='PPFS']
+                x_s = df_filtered['n_features'].min()
+                x_e = df_filtered['n_features'].max()
+                p = (ggplot(df_filtered, aes(x='n_features', y='mean', group='Method', color='Method')) + geom_line(alpha=alpha, size=2) + geom_errorbar(aes(x='n_features', ymin='mean-std', ymax='mean+std', group='Method'), linetype='solid', alpha=alpha, width=0.05, size=2) + geom_segment(data=df_ppfs, mapping=aes(x=x_s, xend=x_e, y='mean', yend='mean'), alpha=alpha, size=2, linetype='dashed') + geom_errorbar(data=df_ppfs, mapping=aes(x='n_features', ymin='mean-std', ymax='mean+std'), linetype='solid', alpha=alpha, width=0.05, size=2) + scale_x_log10(name=x_label) + scale_y_continuous(name=metric.capitalize()))
+            else:
+                p = (ggplot(df_filtered, aes(x='n_features', y='mean', group='Method', color='Method')) + geom_line(alpha=alpha, size=2) + geom_errorbar(aes(x='n_features', ymin='mean-std', ymax='mean+std', group='Method'), linetype='solid', alpha=alpha, width=0.05, size=2) + scale_x_log10(name=x_label) + scale_y_continuous(name=metric.capitalize()))  
+
 
             save_path = os.path.join('figures', 'metrics', f'{dataset_name}')
             _ensure_dir_path(save_path)
@@ -93,7 +102,9 @@ for dataset_name, dataset_dict in df_dict.items():
             'lfs': 'LFS',
             'baseline': 'Baseline',
             'ppfs': 'PPFS',
-            'f_val': 'F-stat'
+            'f_val': 'F-stat',
+            'mRMR' : 'mRMR'
+
         }
         df['Method'] = df['Method'].map(methods_renames)
         p = (ggplot(df, aes(x='n_features', y='value', group='Method', color='Method')) + geom_line(alpha=alpha, size=2) + scale_x_log10(name='Number of kept features') + scale_y_log10(name='Runtime (s)'))  

@@ -4,10 +4,12 @@ from typing import Union
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.special import comb
 from sklearn.feature_selection import mutual_info_classif, chi2, f_classif
+from sklearn.metrics import mutual_info_score
 from src.preprocessing.ctfidf import CTFIDFVectorizer
 from sklearn.preprocessing import minmax_scale
 from sklearn.feature_extraction.text import CountVectorizer
 from scipy.stats import entropy
+import sys
 
 class BaseTextFeatureExtractor:
     """
@@ -110,7 +112,7 @@ class CTFIDFFeatureExtractor(BaseTextFeatureExtractor):
 
 
 
-class TermStrengthFeatureExtractor(BaseTextFeatureExtractor):
+class TermStrengthFeatureExtractor():
     """
     Calculates term strength according to http://mlwiki.org/index.php/Term_Strength
     The resulting term strength values are the max between different classes. This should make this metric extensible for multiclass classification. 
@@ -162,7 +164,74 @@ class TermStrengthFeatureExtractor(BaseTextFeatureExtractor):
         
         return X_s_t
 
-            
+class mRMR(BaseTextFeatureExtractor):
+    """
+    Mutual Information based feature extractor that also consideres relevance and redundancy. Implemented based on 10.1109/TPAMI.2005.159
+    """
+
+    def __init__(self):
+        self.selected_indices = None
+    
+    @staticmethod
+    def calc_opt_metric(X, y, idx_sel, idx):
+        """
+        Calculate optimization target metric
+        Arguments:
+            X - full dataset
+            y - target variable
+            idx_sel - indicies for the already selected features
+            idx - index of the variable to check
+        Returns:
+            optimization target metric
+        """
+        X_j = X.iloc[:, idx]
+        m = idx_sel.shape[0]
+        # avoid 0 division
+        if m < 2: 
+            m = 2 
+        I_xj_c = mutual_info_score(X_j, y)
+        I_xj_xi_sum = 0
+        for i in idx_sel:
+            I_xj_xi_sum += mutual_info_score(X_j, X.iloc[:, i])
+        I_xj_xi_sum = I_xj_xi_sum/(m-1)
+
+        return I_xj_c - I_xj_xi_sum
+
+
+
+    def fit(self, X, y, m):
+        """
+        Fit feature extractor.
+        Arguments:
+            X - full dataset
+            y - target variable
+            m - number of feature to select
+        """
+        all_idx = np.arange(X.shape[1])
+        idx_sel = np.array([]).astype(int)
+        for i in range(m):
+            idx_unchecked = all_idx[np.isin(all_idx, idx_sel,invert=True)]
+            opt_metric = [mRMR.calc_opt_metric(X, y, idx_sel, idx) for idx in idx_unchecked]
+            selected = np.argmax(opt_metric)
+            idx_sel = np.append(idx_sel, selected)
+
+            sys.stdout.write("Variables checked %d out of %d   \r" % (i+1, m) )
+            sys.stdout.flush()
+        
+        self.selected_indices = idx_sel.astype(int)
+    
+    def filter_n_best(self, X, n, vocabulary):
+        X_filtered = X.iloc[:, self.selected_indices]
+        selected_vocabulary = vocabulary[self.selected_indices]
+        return X_filtered, selected_vocabulary
+
+    def remove_n_best(self, X, n, vocabulary):
+        X_filtered = np.delete(X, self.selected_indices, axis=1)
+        selected_vocabulary = np.delete(vocabulary, self.selected_indices)
+        return X_filtered, selected_vocabulary
+
+
+
 class MutualInformationFeatureExtractor(BaseTextFeatureExtractor):
     """
     Mutual Information based feature extractor. Implemented based on arXiv:1509.07577
