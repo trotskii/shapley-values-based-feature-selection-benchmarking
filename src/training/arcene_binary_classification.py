@@ -286,6 +286,62 @@ def test_extractor(model: sklearn.base.BaseEstimator, extractor: filter.BaseText
     return results
 
 
+def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_features: int) -> dict:
+    """
+    Train passed model on a features selected by passed extractor.
+    """
+    timing = {}
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
+
+    X = df.drop(columns=['Class'])
+    y = df['Class']
+
+    group_k_fold = StratifiedKFold(n_splits=5)
+    extractor = filter.mRMR()
+
+    for train_idx, test_idx in group_k_fold.split(X, y):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+
+        start = timer()
+        extractor.fit(X_train, y_train, n_features)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        
+        start = timer()
+        features = X.columns.values
+        X_train_filtered, features_filtered = extractor.filter_n_best(X_train, n_features, features)
+        X_test_filtered, _ = extractor.filter_n_best(X_test, n_features, features)
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
+
+
+        start = timer()
+        model.fit(X_train_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
+
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = n_features
+        results['selected_vocabulary'] = features_filtered.tolist()
+        results_list.append(results)
+    
+    results = summarize_results(results_list, timing)
+
+    return results
+
 def get_baseline(df: pd.DataFrame, model: sklearn.base.BaseEstimator) -> dict:
     timing = {}
     timing['model_training_time'] = []
@@ -326,9 +382,9 @@ df = pd.read_csv('data/arcene/arcene.csv', sep=';', index_col=0)
 df['Class'] = df['Class'] - 1
 
 model = SVC()
-result = test_ppfs_extractor(model, df)
-with open(f'results/arcene/results_ppfs.json', 'w') as file:
-                json.dump(result, file) 
+# result = test_ppfs_extractor(model, df)
+# with open(f'results/arcene/results_ppfs.json', 'w') as file:
+                # json.dump(result, file) 
 
 
 n_words_options = [10, 100, 500, 1000, 3000, 5000, 8000]
@@ -337,10 +393,11 @@ filter_extractors['mutual_information'] = filter.MutualInformationFeatureExtract
 filter_extractors['f_val'] = filter.FValFeatureExtractor()
 
 method_list = {}
-for name, extractor in filter_extractors.items():
-    method_list[name] = partial(test_extractor, model, extractor, df)
+# for name, extractor in filter_extractors.items():
+    # method_list[name] = partial(test_extractor, model, extractor, df)
 
-method_list['shap'] = partial(shap_based_method, df, model)
+# method_list['shap'] = partial(shap_based_method, df, model)
+method_list['mRMR'] = partial(test_mRMR_extractor, df, model)
 
 for n_words in n_words_options:
     for name, method in method_list.items():

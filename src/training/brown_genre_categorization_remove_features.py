@@ -18,6 +18,7 @@ from sklearn.feature_extraction.text import  CountVectorizer, TfidfTransformer
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.svm import SVC
 from numpy.typing import ArrayLike
+import mifs
 
 import src.preprocessing.text_preprocessing as tp 
 import src.preprocessing.feature_extraction.text.filtering as filter 
@@ -313,6 +314,78 @@ def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_wor
 
     return results
 
+def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_features: int) -> dict:
+    """
+    Train passed model on a features selected by passed extractor.
+    """
+    timing = {}
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
+
+    X = df['Text']
+    y = df['Label']
+
+    group_k_fold = StratifiedKFold(n_splits=5)
+
+    extractor = mifs.MutualInformationFeatureSelector(method='JMI', k=10, n_features=n_features, verbose=0, n_jobs=-1)
+
+    for train_idx, test_idx in group_k_fold.split(X, y):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+
+        count_vectorizer = CountVectorizer(binary=True)
+        count_vectorizer.fit(X_train)
+
+        X_train_vectorized = count_vectorizer.transform(X_train)
+        X_test_vectorized = count_vectorizer.transform(X_test)
+
+        vocabulary = count_vectorizer.get_feature_names_out()
+
+        tfidf = TfidfTransformer()
+        X_train_vectorized = tfidf.fit_transform(X_train_vectorized, y_train).toarray()
+        X_test_vectorized = tfidf.transform(X_test_vectorized).toarray()
+
+        start = timer()
+        extractor.fit(X_train_vectorized, y_train)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+
+        remove_features_idx = extractor._support_mask        
+
+        start = timer()
+        X_train_vectorized_filtered = np.delete(X_train_vectorized, remove_features_idx, 1)
+        X_test_vectorized_filtered = np.delete(X_test_vectorized, remove_features_idx, 1) 
+        features_filtered = np.delete(vocabulary, remove_features_idx)
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
+
+        
+
+        start = timer()
+        model.fit(X_train_vectorized_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
+
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_vectorized_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_vectorized_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = int(n_features)
+        results['selected_vocabulary'] = features_filtered.tolist()
+        results_list.append(results)
+    
+    results = summarize_results(results_list, timing)
+
+    return results
+
 def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_words: int) -> dict:
     """
     Train model with mutual information based features selection.
@@ -436,21 +509,22 @@ def main():
     print('Finished preprocessing.')
     model = OneVsRestClassifier(SVC(class_weight='balanced', kernel='rbf', gamma=1/10))
 
-    # n_words_options = [50, 100, 200, 500, 1000, 3000, 5000, 10000, 15000, 25000]
-    n_words_options = [100, 500, 1000, 5000, 10000, 20000]
+    n_words_options =  [100, 500, 1000, 5000, 10000, 20000] 
     filter_extractors = {}
     filter_extractors['term_strength'] = filter.TermStrengthFeatureExtractor()
     filter_extractors['mutual_information'] = filter.MutualInformationFeatureExtractor()
     filter_extractors['chi2'] = filter.Chi2FeatureExtractor()
-    # filter_extractors['trl'] = filter.TRLFeatureExtractor()
-    # filter_extractors['eccd'] = filter.ECCDFeatureExtractor()
-    # filter_extractors['linear_measure_5'] = filter.LinearMeasureBasedFeatureExtractor(k=5)
+    filter_extractors['trl'] = filter.TRLFeatureExtractor()
+    filter_extractors['eccd'] = filter.ECCDFeatureExtractor()
+    filter_extractors['linear_measure_5'] = filter.LinearMeasureBasedFeatureExtractor(k=5)
     method_list = {}
-    for name, extractor in filter_extractors.items():
-        method_list[name] = partial(test_extractor, model, extractor, df)
+    # for name, extractor in filter_extractors.items():
+        # method_list[name] = partial(test_extractor, model, extractor, df)
 
-    method_list['shap'] = partial(shap_based_method, df, model)
-    method_list['tfidf'] = partial(tfidf_based_method, df, model)
+    # method_list['shap'] = partial(shap_based_method, df, model)
+    # method_list['tfidf'] = partial(tfidf_based_method, df, model)
+    method_list['mRMR'] = partial(test_mRMR_extractor, df, model)
+    
     for n_words in n_words_options:
         for name, method in method_list.items():
             start = timer()
