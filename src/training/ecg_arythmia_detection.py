@@ -11,6 +11,8 @@ import logging
 import json
 import sys
 from functools import partial
+import mifs
+
 
 from sklearn.model_selection import train_test_split, StratifiedGroupKFold
 from sklearn.metrics import classification_report, confusion_matrix
@@ -147,6 +149,65 @@ def test_extractor(model: sklearn.base.BaseEstimator, extractor: filter.BaseText
         features = X.columns.values
         X_train_filtered, features_filtered = extractor.filter_n_best(X_train, n_features, features)
         X_test_filtered, _ = extractor.filter_n_best(X_test, n_features, features)
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
+
+
+        start = timer()
+        model.fit(X_train_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
+
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = n_features
+        results['selected_vocabulary'] = features_filtered.tolist()
+        results_list.append(results)
+    
+    results = summarize_results(results_list, timing)
+
+    return results
+
+def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_features: int) -> dict:
+    """
+    Train passed model on a features selected by passed extractor.
+    """
+    timing = {}
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
+
+    X = df.drop(columns=['label', 'file_idx'])
+    y = df['label'].astype(int)
+    f_idx = df['file_idx']
+
+    group_k_fold = StratifiedGroupKFold(n_splits=5)
+    extractor = mifs.MutualInformationFeatureSelector(method='JMI', k=10, n_features=n_features, verbose=0, n_jobs=-1)
+
+    for train_idx, test_idx in group_k_fold.split(X, y, f_idx):
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+
+        start = timer()
+        extractor.fit(X_train, y_train)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        selected_idx = extractor._support_mask
+        features = X.columns.values
+        features_filtered = features[selected_idx]
+
+        start = timer()
+        X_train_filtered = extractor.transform(X_train)
+        X_test_filtered = extractor.transform(X_test)
         end = timer()
         timing['filtered_features'].append(timedelta(seconds=end-start))
 
@@ -336,11 +397,13 @@ def main():
     filter_extractors['f_val'] = filter.FValFeatureExtractor()
 
     method_list = {}
-    for name, extractor in filter_extractors.items():
-        method_list[name] = partial(test_extractor, model, extractor, df)
+    # for name, extractor in filter_extractors.items():
+        # method_list[name] = partial(test_extractor, model, extractor, df)
 
-    method_list['shap'] = partial(shap_based_method, df, model)
-    method_list['lfs'] = partial(lfs_based_method, df, model)
+    # method_list['shap'] = partial(shap_based_method, df, model)
+    # method_list['lfs'] = partial(lfs_based_method, df, model)
+
+    method_list['mRMR'] = partial(test_mRMR_extractor, df, model)
 
     for n_words in n_words_options:
         for name, method in method_list.items():

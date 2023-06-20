@@ -4,6 +4,7 @@ warnings.filterwarnings('ignore')  # "error", "ignore", "always", "default", "mo
 import pandas as pd 
 import numpy as np 
 import scipy
+import mifs
 import sklearn 
 from timeit import default_timer as timer
 from datetime import timedelta
@@ -232,6 +233,65 @@ def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_fea
 
     return results
 
+def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_features: int) -> dict:
+    """
+    Train passed model on a features selected by passed extractor.
+    """
+    timing = {}
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
+
+    X = df.drop(columns=['label', 'file_idx'])
+    y = df['label'].astype(int)
+    f_idx = df['file_idx']
+
+    group_k_fold = StratifiedGroupKFold(n_splits=5)
+    extractor = mifs.MutualInformationFeatureSelector(method='JMI', k=10, n_features=n_features, verbose=0, n_jobs=-1)
+
+    for train_idx, test_idx in group_k_fold.split(X, y, f_idx):
+        X_train = X.iloc[train_idx].values
+        y_train = y.iloc[train_idx].values
+        X_test = X.iloc[test_idx].values
+        y_test = y.iloc[test_idx].values
+
+        start = timer()
+        extractor.fit(X_train, y_train)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        remove_features_idx = extractor._support_mask
+        features = X.columns.values
+        features_filtered = np.delete(features, remove_features_idx)
+
+        start = timer()
+        X_train_filtered = np.delete(X_train, remove_features_idx, 1)
+        X_test_filtered = np.delete(X_test, remove_features_idx, 1) 
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
+
+
+        start = timer()
+        model.fit(X_train_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
+
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = n_features
+        results['selected_vocabulary'] = features_filtered.tolist()
+        results_list.append(results)
+    
+    results = summarize_results(results_list, timing)
+
+    return results
+
 def lfs_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_words: int) -> dict:
     """
     Train model with mutual information based features selection.
@@ -342,11 +402,13 @@ def main():
     filter_extractors['f_val'] = filter.FValFeatureExtractor()
 
     method_list = {}
-    for name, extractor in filter_extractors.items():
-        method_list[name] = partial(test_extractor, model, extractor, df)
+    # for name, extractor in filter_extractors.items():
+        # method_list[name] = partial(test_extractor, model, extractor, df)
 
-    method_list['shap'] = partial(shap_based_method, df, model)
-    method_list['lfs'] = partial(lfs_based_method, df, model)
+    # method_list['shap'] = partial(shap_based_method, df, model)
+    # method_list['lfs'] = partial(lfs_based_method, df, model)
+    method_list['mRMR'] = partial(test_mRMR_extractor, df, model)
+
 
     for n_words in n_words_options:
         for name, method in method_list.items():

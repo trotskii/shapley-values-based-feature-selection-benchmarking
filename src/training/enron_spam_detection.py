@@ -8,6 +8,8 @@ import logging
 import json
 import sys
 from functools import partial
+import mifs
+
 
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.metrics import classification_report, confusion_matrix
@@ -281,6 +283,79 @@ def tfidf_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_wo
 
     return results
 
+def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_features: int) -> dict:
+    """
+    Train passed model on a features selected by passed extractor.
+    """
+    timing = {}
+    timing['extractor_fit'] = []
+    timing['filtered_features'] = []
+    timing['model_training_time'] = []
+    results_list = []
+
+    X = df['Text']
+    y = df['Label']
+
+    group_k_fold = StratifiedKFold(n_splits=5)
+
+    extractor = mifs.MutualInformationFeatureSelector(method='JMI', k=10, n_features=n_features, verbose=0, n_jobs=-1)
+
+    for train_idx, test_idx in group_k_fold.split(X, y):
+        print("Another fold.")
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+
+        count_vectorizer = CountVectorizer(binary=True)
+        count_vectorizer.fit(X_train)
+
+        X_train_vectorized = count_vectorizer.transform(X_train)
+        X_test_vectorized = count_vectorizer.transform(X_test)
+
+        vocabulary = count_vectorizer.get_feature_names_out()
+
+        tfidf = TfidfTransformer()
+        X_train_vectorized = tfidf.fit_transform(X_train_vectorized, y_train).toarray()
+        X_test_vectorized = tfidf.transform(X_test_vectorized).toarray()
+
+        start = timer()
+        extractor.fit(X_train_vectorized, y_train)
+        end = timer()
+        timing['extractor_fit'].append(timedelta(seconds=end-start))
+        logging.info('Fit extractor.')
+        print('Fit extractor.')
+
+        selected_idx = extractor._support_mask
+
+        start = timer()
+        X_train_vectorized_filtered = extractor.transform(X_train_vectorized)
+        X_test_vectorized_filtered = extractor.transform(X_test_vectorized)
+        features_filtered = vocabulary[selected_idx]
+        end = timer()
+        timing['filtered_features'].append(timedelta(seconds=end-start))
+
+        
+
+        start = timer()
+        model.fit(X_train_vectorized_filtered, y_train)
+        end = timer()    
+        timing['model_training_time'].append(timedelta(seconds=end-start))
+        logging.info('Model training finished.')
+
+        results, timing = record_results(model=model, 
+                                    X_t=X_train_vectorized_filtered,
+                                    y_t=y_train,
+                                    X_val=X_test_vectorized_filtered,
+                                    y_val=y_test,
+                                    timing=timing)
+        results['n_words'] = int(n_features)
+        results['selected_vocabulary'] = features_filtered.tolist()
+        results_list.append(results)
+    
+    results = summarize_results(results_list, timing)
+
+    return results
 
 def shap_based_method(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_words: int) -> dict:
     """
@@ -430,11 +505,12 @@ def main():
     filter_extractors['linear_measure_5'] = filter.LinearMeasureBasedFeatureExtractor(k=5)
 
     method_list = {}
-    for name, extractor in filter_extractors.items():
-        method_list[name] = partial(test_extractor, model, extractor, df)
+    # for name, extractor in filter_extractors.items():
+        # method_list[name] = partial(test_extractor, model, extractor, df)
 
-    method_list['shap'] = partial(shap_based_method, df, model)
-    method_list['tfidf'] = partial(tfidf_based_method, df, model)
+    # method_list['shap'] = partial(shap_based_method, df, model)
+    # method_list['tfidf'] = partial(tfidf_based_method, df, model)
+    method_list['mRMR'] = partial(test_mRMR_extractor, df, model)
     # method_list['lfs'] = partial(lfs_based_method, df, model)
 
     for n_words in n_words_options:

@@ -128,6 +128,7 @@ def test_ppfs_extractor(model: sklearn.base.BaseEstimator, df: pd.DataFrame) -> 
     timing['filtered_features'] = []
     timing['model_training_time'] = []
     results_list = []
+
     X = df.iloc[:, :-1]
     y = df.iloc[:, -1]
 
@@ -240,12 +241,12 @@ def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_f
     timing['filtered_features'] = []
     timing['model_training_time'] = []
     results_list = []
-    X = df.drop(columns='label')
-    y = df['label']
+
+    X = df.iloc[:, :-1]
+    y = df.iloc[:, -1]
 
     group_k_fold = StratifiedKFold(n_splits=5)
-
-    extractor = mifs.MutualInformationFeatureSelector(method='JMI', k=8, n_features=n_features, verbose=0, n_jobs=-1)
+    extractor = mifs.MutualInformationFeatureSelector(method='JMI', k=10, n_features=n_features, verbose=0, n_jobs=-1)
 
     for train_idx, test_idx in group_k_fold.split(X, y):
         X_train = X.iloc[train_idx]
@@ -258,14 +259,13 @@ def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_f
         end = timer()
         timing['extractor_fit'].append(timedelta(seconds=end-start))
         logging.info('Fit extractor.')
-        
-        start = timer()
+        selected_idx = extractor._support_mask
         features = X.columns.values
+        features_filtered = features[selected_idx]
+
+        start = timer()
         X_train_filtered = extractor.transform(X_train)
         X_test_filtered = extractor.transform(X_test)
-        features_filtered = extractor.get_feature_names_out(features)
-        # X_train_filtered, features_filtered = extractor.filter_n_best(X_train, n_features, features)
-        # X_test_filtered, _ = extractor.filter_n_best(X_test, n_features, features)
         end = timer()
         timing['filtered_features'].append(timedelta(seconds=end-start))
 

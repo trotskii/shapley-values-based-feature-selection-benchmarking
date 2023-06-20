@@ -16,7 +16,7 @@ from numpy.typing import ArrayLike
 from timeit import default_timer as timer
 import logging
 import json
-import sys
+import mifs
 from functools import partial
 from datetime import timedelta
 warnings.filterwarnings('ignore')  # "error", "ignore", "always", "default", "module" or "once"
@@ -295,12 +295,13 @@ def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_f
     timing['filtered_features'] = []
     timing['model_training_time'] = []
     results_list = []
-
+    
     X = df.drop(columns=['Class'])
     y = df['Class']
 
+
     group_k_fold = StratifiedKFold(n_splits=5)
-    extractor = filter.mRMR()
+    extractor = mifs.MutualInformationFeatureSelector(method='JMI', k=10, n_features=n_features, verbose=0, n_jobs=-1)
 
     for train_idx, test_idx in group_k_fold.split(X, y):
         X_train = X.iloc[train_idx]
@@ -309,15 +310,17 @@ def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_f
         y_test = y.iloc[test_idx]
 
         start = timer()
-        extractor.fit(X_train, y_train, n_features)
+        extractor.fit(X_train, y_train)
         end = timer()
         timing['extractor_fit'].append(timedelta(seconds=end-start))
         logging.info('Fit extractor.')
-        
-        start = timer()
+        selected_idx = extractor._support_mask
         features = X.columns.values
-        X_train_filtered, features_filtered = extractor.filter_n_best(X_train, n_features, features)
-        X_test_filtered, _ = extractor.filter_n_best(X_test, n_features, features)
+        features_filtered = features[selected_idx]
+
+        start = timer()
+        X_train_filtered = extractor.transform(X_train)
+        X_test_filtered = extractor.transform(X_test)
         end = timer()
         timing['filtered_features'].append(timedelta(seconds=end-start))
 
@@ -334,7 +337,7 @@ def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_f
                                     X_val=X_test_filtered,
                                     y_val=y_test,
                                     timing=timing)
-        results['n_words'] = n_features
+        results['n_words'] = int(n_features)
         results['selected_vocabulary'] = features_filtered.tolist()
         results_list.append(results)
     
