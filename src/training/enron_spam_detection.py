@@ -293,6 +293,11 @@ def test_mRMR_extractor(df: pd.DataFrame, model: sklearn.base.BaseEstimator, n_f
     timing['model_training_time'] = []
     results_list = []
 
+    print(f"Total samples: {df.shape[0]}")
+    df = df.sample(frac=0.3)
+    print(f"After sampling: {df.shape[0]}")
+    print(f"Label distribution: {df.groupby('Label').count()}")
+
     X = df['Text']
     y = df['Label']
 
